@@ -45,29 +45,27 @@ export function BuyDialog({ listing, onClose }: { listing: Listing | null; onClo
       <div className="mt-5 space-y-2.5 rounded-2xl bg-ink-900/60 border border-[color:var(--border)] p-4">
         <Row label="You pay" value={<PriceTag amount={listing.price} currency={listing.currency} size="sm" />} />
         <Row
-          label="Marketplace fee"
+          label={isExternal ? "Marketplace fee" : "Creator royalty"}
           value={
             meta.fee === 0 ? (
               <span className="text-green-400 font-semibold flex items-center gap-1">
                 <Zap size={12} /> 0% · feeless
               </span>
             ) : (
-              <span className="font-semibold" style={{ color: meta.color }}>
+              <span className="font-semibold" style={{ color: !isExternal ? '#22c55e' : meta.color }}>
                 {meta.feeLabel} · {formatAmount(feeAmount, listing.currency)} {listing.currency.toUpperCase()}
               </span>
             )
           }
         />
-        {isExternal && (
-          <Row
-            label="Seller receives"
-            value={
-              <span className="font-semibold text-slate-200">
-                {formatAmount(sellerReceives, listing.currency)} {listing.currency.toUpperCase()}
-              </span>
-            }
-          />
-        )}
+        <Row
+          label="Seller receives"
+          value={
+            <span className="font-semibold text-slate-200">
+              {formatAmount(sellerReceives, listing.currency)} {listing.currency.toUpperCase()}
+            </span>
+          }
+        />
         <Row
           label="Source"
           value={<span className="font-semibold" style={{ color: meta.color }}>{meta.label}</span>}

@@ -173,6 +173,7 @@ export function buildPurchaseSolIx(params: {
       META.w(params.asset),
       // collection is writable: MPL Core marks it mut on plugin thaw/removal.
       META.w(collectionAddress(params.collection)),
+      META.w(COLLECTIONS[params.collection].creator),
       META.ro(MPL_CORE_PROGRAM_ID),
       META.ro(SystemProgram.programId),
     ],
@@ -191,6 +192,8 @@ export function buildPurchaseGboyIx(params: {
   const [listing] = listingPda(params.asset);
   const buyerGboy = getAssociatedTokenAddressSync(GBOY_MINT, params.buyer);
   const sellerGboy = getAssociatedTokenAddressSync(GBOY_MINT, params.seller);
+  const creator = COLLECTIONS[params.collection].creator;
+  const creatorGboy = getAssociatedTokenAddressSync(GBOY_MINT, creator);
   return new TransactionInstruction({
     programId: PROGRAM_ID,
     keys: [
@@ -200,6 +203,8 @@ export function buildPurchaseGboyIx(params: {
       META.ro(GBOY_MINT),
       META.w(buyerGboy),
       META.w(sellerGboy),
+      META.w(creator),
+      META.w(creatorGboy),
       META.w(params.asset),
       // collection is writable: MPL Core marks it mut on plugin thaw/removal.
       META.w(collectionAddress(params.collection)),
@@ -412,6 +417,8 @@ export function buildAcceptOfferIx(params: {
   const usesGboy = params.currency === 'gboy';
   const offerGboy = usesGboy ? getAssociatedTokenAddressSync(GBOY_MINT, offer, true) : PROGRAM_ID;
   const sellerGboy = usesGboy ? getAssociatedTokenAddressSync(GBOY_MINT, params.seller) : PROGRAM_ID;
+  const creator = COLLECTIONS[params.collection].creator;
+  const creatorGboy = usesGboy ? getAssociatedTokenAddressSync(GBOY_MINT, creator) : PROGRAM_ID;
   return new TransactionInstruction({
     programId: PROGRAM_ID,
     keys: [
@@ -420,8 +427,10 @@ export function buildAcceptOfferIx(params: {
       META.w(offer),
       META.w(params.asset),
       META.ro(collectionAddress(params.collection)),
+      META.w(creator),
       usesGboy ? META.w(offerGboy) : META.ro(offerGboy),
       usesGboy ? META.w(sellerGboy) : META.ro(sellerGboy),
+      usesGboy ? META.w(creatorGboy) : META.ro(creatorGboy),
       META.ro(MPL_CORE_PROGRAM_ID),
       META.ro(TOKEN_PROGRAM_ID),
       META.ro(SystemProgram.programId),

@@ -128,9 +128,9 @@ export const ORIGIN_META: Record<
   MarketOrigin,
   { label: string; short: string; color: string; fee: number; feeLabel: string }
 > = {
-  magiceden: { label: 'Magic Eden', short: 'Magic Eden', color: '#e42575', fee: 0.02,  feeLabel: '2% fee'      },
-  tensor:    { label: 'Tensor',     short: 'Tensor',     color: '#5c7cfa', fee: 0.015, feeLabel: '1.5% fee'    },
-  neukomart: { label: 'neukomart',  short: 'neuko',      color: '#ff2222', fee: 0,     feeLabel: '0% feeless'  },
+  magiceden: { label: 'Magic Eden', short: 'Magic Eden', color: '#e42575', fee: 0.02,  feeLabel: '2% fee'     },
+  tensor:    { label: 'Tensor',     short: 'Tensor',     color: '#5c7cfa', fee: 0.015, feeLabel: '1.5% fee'   },
+  neukomart: { label: 'neukomart',  short: 'neuko',      color: '#ff2222', fee: 0.05,  feeLabel: '5% royalty' },
 };
 
 /** Link to the item's page on its source marketplace (null for neukomart). */
@@ -157,7 +157,7 @@ export function OriginBadge({ origin, compact = false, className }: { origin: Ma
 
 /**
  * Origin + fee pill for use on NFT cards.
- * NEUKO listings show a green feeless badge; ME/Tensor show their fee.
+ * NEUKO listings show a green fee badge; ME/Tensor show their fee.
  */
 export function FeePill({ origin, className }: { origin: MarketOrigin; className?: string }) {
   const m = ORIGIN_META[origin] ?? ORIGIN_META.neukomart;
@@ -180,7 +180,7 @@ export function FeePill({ origin, className }: { origin: MarketOrigin; className
       ) : (
         <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: m.color }} />
       )}
-      {isNeuko ? '0% FEELESS' : `${m.feeLabel.toUpperCase()} · ${m.short.toUpperCase()}`}
+      {isNeuko ? '5% ROYALTY' : `${m.feeLabel.toUpperCase()} · ${m.short.toUpperCase()}`}
     </span>
   );
 }

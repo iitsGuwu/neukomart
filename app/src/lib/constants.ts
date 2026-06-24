@@ -22,6 +22,13 @@ export const GBOY_MINT = new PublicKey(
   'svy5ErijNYy9hEVzxknCdwWdZ3NeXJTdpb9Ndnso17f',
 );
 
+export const BADGES_CREATOR = new PublicKey(
+  'DQ1LJZ2ET1oHcCgojCN3kXakTQSkuCxgEqXguf2UrYS5',
+);
+export const HARMIES_CREATOR = new PublicKey(
+  '57MFtfGrJheHeRzeSpARcUEBqa9jXELGGZrRszysf4VB',
+);
+
 /** Deployed marketplace program (Anchor). */
 export const PROGRAM_ID = new PublicKey(
   'Foz4ZtLQKKdSk4V1d6cDp6Gr3gActoQGUhh5B4YTafA2',
@@ -43,6 +50,7 @@ export interface CollectionMeta {
   name: string;
   symbol: string;
   address: PublicKey;
+  creator: PublicKey;
   supply: number;
   blurb: string;
   /** Real on-chain cover art. */
@@ -56,6 +64,7 @@ export const COLLECTIONS: Record<CollectionKey, CollectionMeta> = {
     name: 'G*BOY Badges',
     symbol: 'GBB',
     address: BADGES_COLLECTION,
+    creator: BADGES_CREATOR,
     supply: 1500,
     blurb: 'On-chain merit. 1,500 retro badges earned across the G*BOY arcade.',
     cover:
@@ -67,6 +76,7 @@ export const COLLECTIONS: Record<CollectionKey, CollectionMeta> = {
     name: 'Harmies',
     symbol: 'HARM',
     address: HARMIES_COLLECTION,
+    creator: HARMIES_CREATOR,
     supply: 500,
     blurb:
       'They burned them, buried them and bolted them back together. 500 reasons to smile.',

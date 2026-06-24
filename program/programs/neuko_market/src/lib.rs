@@ -1,4 +1,4 @@
-//! NEUKO Market — a feeless, ecosystem-locked marketplace program for the
+//! NEUKO Market — an ecosystem-locked marketplace program for the
 //! G*BOY (NEUKO) ecosystem.
 //!
 //! Scope is locked to exactly three on-chain assets:
@@ -6,8 +6,10 @@
 //!   * Harmies collection (Metaplex Core)
 //!   * $GBOY   SPL token
 //!
-//! The program never takes a fee. Buyers pay sellers 100% of the price.
-//! The only costs to users are network gas and (reclaimable) account rent.
+//! The program takes zero marketplace fees. A 5% creator royalty is enforced
+//! on every sale (fixed-price purchases and offer acceptances), honouring the
+//! on-chain royalty plugins set by the collection creators. Barter swaps are
+//! royalty-free. The only other costs are network gas and (reclaimable) rent.
 //!
 //! Features
 //!   * Fixed-price listings priced in SOL or $GBOY
@@ -55,6 +57,16 @@ pub const BADGES_COLLECTION: Pubkey = pubkey!("7BT68wwawSB123AbPHbdrDbSKLKUEnYxL
 pub const HARMIES_COLLECTION: Pubkey = pubkey!("CR2uSgUPMvAwV59doVwMxXd6Ahc2XxDmnjsHJsJK7i5N");
 #[cfg(feature = "devnet")]
 pub const GBOY_MINT: Pubkey = pubkey!("7xrbFbfQ9T7h3hR5HtP9eAuHJ3zo1KWbmmaXgW964VNs");
+
+// ---------------------------------------------------------------------------
+// Creator royalty registry — verified on-chain via each collection's Royalty
+// plugin. Both collections configure 500 bps (5%) with a single creator.
+// ---------------------------------------------------------------------------
+pub const BADGES_CREATOR: Pubkey = pubkey!("DQ1LJZ2ET1oHcCgojCN3kXakTQSkuCxgEqXguf2UrYS5");
+pub const HARMIES_CREATOR: Pubkey = pubkey!("57MFtfGrJheHeRzeSpARcUEBqa9jXELGGZrRszysf4VB");
+
+/// Creator royalty in basis points (500 = 5%).
+pub const ROYALTY_BPS: u64 = 500;
 
 /// Metaplex Core program — the only NFT standard this market touches.
 pub const MPL_CORE_PROGRAM: Pubkey = pubkey!("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
@@ -148,7 +160,8 @@ pub mod neuko_market {
         Ok(())
     }
 
-    /// Buy a SOL-priced listing. Buyer pays the seller in full (feeless).
+    /// Buy a SOL-priced listing. 5% creator royalty is deducted and sent to
+    /// the collection creator; the seller receives the remaining 95%.
     ///
     /// `max_price` is the buyer's slippage guard: the price the buyer agreed to
     /// when signing. If the seller front-runs with `update_listing` to raise the
@@ -158,6 +171,28 @@ pub mod neuko_market {
         require!(listing.currency == Currency::Sol, MarketError::WrongCurrency);
         require!(listing.price <= max_price, MarketError::PriceExceedsMax);
 
+        // Validate the creator account matches the collection.
+        let expected_creator = creator_for_collection(&listing.collection)?;
+        require_keys_eq!(ctx.accounts.creator.key(), expected_creator, MarketError::InvalidCreator);
+
+        let royalty = compute_royalty(listing.price);
+        let seller_amount = listing.price.checked_sub(royalty).unwrap();
+
+        // Pay creator royalty.
+        if royalty > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.buyer.to_account_info(),
+                        to: ctx.accounts.creator.to_account_info(),
+                    },
+                ),
+                royalty,
+            )?;
+        }
+
+        // Pay seller (price minus royalty).
         system_program::transfer(
             CpiContext::new(
                 ctx.accounts.system_program.to_account_info(),
@@ -166,7 +201,7 @@ pub mod neuko_market {
                     to: ctx.accounts.seller.to_account_info(),
                 },
             ),
-            listing.price,
+            seller_amount,
         )?;
 
         settle_listing_to_buyer(
@@ -190,7 +225,8 @@ pub mod neuko_market {
         Ok(())
     }
 
-    /// Buy a $GBOY-priced listing. Buyer pays the seller in full (feeless).
+    /// Buy a $GBOY-priced listing. 5% creator royalty is deducted and sent to
+    /// the collection creator's ATA; the seller receives the remaining 95%.
     ///
     /// `max_price` is the buyer's slippage guard (see `purchase_with_sol`).
     pub fn purchase_with_gboy(ctx: Context<PurchaseWithGboy>, max_price: u64) -> Result<()> {
@@ -198,6 +234,29 @@ pub mod neuko_market {
         require!(listing.currency == Currency::Gboy, MarketError::WrongCurrency);
         require!(listing.price <= max_price, MarketError::PriceExceedsMax);
 
+        // Validate the creator account matches the collection.
+        let expected_creator = creator_for_collection(&listing.collection)?;
+        require_keys_eq!(ctx.accounts.creator.key(), expected_creator, MarketError::InvalidCreator);
+
+        let royalty = compute_royalty(listing.price);
+        let seller_amount = listing.price.checked_sub(royalty).unwrap();
+
+        // Pay creator royalty in $GBOY.
+        if royalty > 0 {
+            token::transfer(
+                CpiContext::new(
+                    ctx.accounts.token_program.to_account_info(),
+                    SplTransfer {
+                        from: ctx.accounts.buyer_gboy.to_account_info(),
+                        to: ctx.accounts.creator_gboy.to_account_info(),
+                        authority: ctx.accounts.buyer.to_account_info(),
+                    },
+                ),
+                royalty,
+            )?;
+        }
+
+        // Pay seller (price minus royalty) in $GBOY.
         token::transfer(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
@@ -207,7 +266,7 @@ pub mod neuko_market {
                     authority: ctx.accounts.buyer.to_account_info(),
                 },
             ),
-            listing.price,
+            seller_amount,
         )?;
 
         settle_listing_to_buyer(
@@ -666,7 +725,7 @@ pub mod neuko_market {
     }
 
     /// Accept an offer: the asset owner delivers the asset to the bidder and
-    /// receives the escrowed SOL / $GBOY (feeless).
+    /// receives the escrowed SOL / $GBOY minus a 5% creator royalty.
     pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
         let collection = ctx.accounts.collection.key();
         let (currency, amount, asset_filter, bidder, nonce, bump) = {
@@ -683,6 +742,13 @@ pub mod neuko_market {
             &ctx.accounts.seller.key(),
         )?;
 
+        // Validate creator.
+        let expected_creator = creator_for_collection(&collection)?;
+        require_keys_eq!(ctx.accounts.creator.key(), expected_creator, MarketError::InvalidCreator);
+
+        let royalty = compute_royalty(amount);
+        let seller_amount = amount.checked_sub(royalty).unwrap();
+
         // Seller delivers the asset to the bidder.
         transfer_core(
             &ctx.accounts.mpl_core_program.to_account_info(),
@@ -695,23 +761,45 @@ pub mod neuko_market {
             None,
         )?;
 
-        // Pay the seller from escrow.
+        // Pay the seller and creator from escrow.
         match currency {
             Currency::Sol => {
-                // Guard against underflow before raw lamport manipulation.
                 let pda_lamports = ctx.accounts.offer.to_account_info().lamports();
                 require!(
                     pda_lamports >= amount,
                     MarketError::InsufficientFunds
                 );
-                **ctx.accounts.offer.to_account_info().try_borrow_mut_lamports()? -= amount;
-                **ctx.accounts.seller.to_account_info().try_borrow_mut_lamports()? += amount;
+                // Creator royalty.
+                if royalty > 0 {
+                    **ctx.accounts.offer.to_account_info().try_borrow_mut_lamports()? -= royalty;
+                    **ctx.accounts.creator.to_account_info().try_borrow_mut_lamports()? += royalty;
+                }
+                // Seller receives remainder.
+                **ctx.accounts.offer.to_account_info().try_borrow_mut_lamports()? -= seller_amount;
+                **ctx.accounts.seller.to_account_info().try_borrow_mut_lamports()? += seller_amount;
             }
             Currency::Gboy => {
                 let offer_ata = ctx.accounts.offer_gboy.as_ref().ok_or(MarketError::MissingTokenAccount)?;
                 let seller_ata = ctx.accounts.seller_gboy.as_ref().ok_or(MarketError::MissingTokenAccount)?;
+                let creator_ata = ctx.accounts.creator_gboy.as_ref().ok_or(MarketError::MissingTokenAccount)?;
                 let nonce_bytes = nonce.to_le_bytes();
                 let seeds: &[&[u8]] = &[b"offer", bidder.as_ref(), nonce_bytes.as_ref(), &[bump]];
+                // Creator royalty.
+                if royalty > 0 {
+                    token::transfer(
+                        CpiContext::new_with_signer(
+                            ctx.accounts.token_program.to_account_info(),
+                            SplTransfer {
+                                from: offer_ata.to_account_info(),
+                                to: creator_ata.to_account_info(),
+                                authority: ctx.accounts.offer.to_account_info(),
+                            },
+                            &[seeds],
+                        ),
+                        royalty,
+                    )?;
+                }
+                // Seller receives remainder.
                 token::transfer(
                     CpiContext::new_with_signer(
                         ctx.accounts.token_program.to_account_info(),
@@ -722,7 +810,7 @@ pub mod neuko_market {
                         },
                         &[seeds],
                     ),
-                    amount,
+                    seller_amount,
                 )?;
                 token::close_account(CpiContext::new_with_signer(
                     ctx.accounts.token_program.to_account_info(),
@@ -759,6 +847,22 @@ fn assert_allowed_collection(collection: &Pubkey) -> Result<()> {
         MarketError::CollectionNotAllowed
     );
     Ok(())
+}
+
+/// Return the verified creator wallet for a given collection.
+fn creator_for_collection(collection: &Pubkey) -> Result<Pubkey> {
+    if *collection == BADGES_COLLECTION {
+        Ok(BADGES_CREATOR)
+    } else if *collection == HARMIES_COLLECTION {
+        Ok(HARMIES_CREATOR)
+    } else {
+        err!(MarketError::CollectionNotAllowed)
+    }
+}
+
+/// Compute the 5% creator royalty (500 basis points) from a sale price.
+fn compute_royalty(price: u64) -> u64 {
+    price.checked_mul(ROYALTY_BPS).unwrap_or(0) / 10_000
 }
 
 /// Verify `asset_ai` is a Core asset that belongs to `collection` and is
@@ -1158,6 +1262,12 @@ pub struct PurchaseWithSol<'info> {
     /// `mut` because MPL Core marks the collection writable on plugin updates.
     #[account(mut, constraint = collection.key() == listing.collection @ MarketError::AssetCollectionMismatch)]
     pub collection: UncheckedAccount<'info>,
+
+    /// CHECK: creator wallet for the collection. Receives the 5% royalty.
+    /// Validated in the handler via `creator_for_collection`.
+    #[account(mut)]
+    pub creator: UncheckedAccount<'info>,
+
     /// CHECK: MPL Core program.
     #[account(address = MPL_CORE_PROGRAM)]
     pub mpl_core_program: UncheckedAccount<'info>,
@@ -1199,6 +1309,18 @@ pub struct PurchaseWithGboy<'info> {
         constraint = seller_gboy.owner == seller.key() @ MarketError::WrongToken,
     )]
     pub seller_gboy: Account<'info, TokenAccount>,
+
+    /// CHECK: creator wallet for the collection. Validated in handler.
+    #[account(mut)]
+    pub creator: UncheckedAccount<'info>,
+
+    /// Creator's $GBOY ATA — receives the 5% royalty.
+    #[account(
+        mut,
+        constraint = creator_gboy.mint == GBOY_MINT @ MarketError::WrongToken,
+        constraint = creator_gboy.owner == creator.key() @ MarketError::WrongToken,
+    )]
+    pub creator_gboy: Account<'info, TokenAccount>,
 
     /// CHECK: the escrowed Core asset.
     #[account(mut)]
@@ -1417,6 +1539,11 @@ pub struct AcceptOffer<'info> {
     #[account(constraint = collection.key() == offer.collection @ MarketError::AssetCollectionMismatch)]
     pub collection: UncheckedAccount<'info>,
 
+    /// CHECK: creator wallet for the collection. Receives the 5% royalty.
+    /// Validated in the handler via `creator_for_collection`.
+    #[account(mut)]
+    pub creator: UncheckedAccount<'info>,
+
     #[account(
         mut,
         constraint = offer_gboy.mint == GBOY_MINT @ MarketError::WrongToken,
@@ -1429,6 +1556,14 @@ pub struct AcceptOffer<'info> {
         constraint = seller_gboy.owner == seller.key() @ MarketError::WrongToken,
     )]
     pub seller_gboy: Option<Account<'info, TokenAccount>>,
+
+    /// Creator's $GBOY ATA — receives the 5% royalty on $GBOY offers.
+    #[account(
+        mut,
+        constraint = creator_gboy.mint == GBOY_MINT @ MarketError::WrongToken,
+        constraint = creator_gboy.owner == creator.key() @ MarketError::WrongToken,
+    )]
+    pub creator_gboy: Option<Account<'info, TokenAccount>>,
 
     /// CHECK: MPL Core program.
     #[account(address = MPL_CORE_PROGRAM)]
@@ -1539,4 +1674,6 @@ pub enum MarketError {
     InsufficientFunds,
     #[msg("Listing price exceeds the maximum the buyer agreed to pay")]
     PriceExceedsMax,
+    #[msg("Creator account does not match the expected creator for this collection")]
+    InvalidCreator,
 }

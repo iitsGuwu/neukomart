@@ -34,7 +34,7 @@ export class ExternalBuyFailed extends Error {
 /** Platform fees as a fraction of sale price. Buyer pays listed price; fee
  *  comes out of the seller's proceeds. */
 export const PLATFORM_FEE: Record<'magiceden' | 'tensor' | 'neukomart', number> = {
-  neukomart: 0,
+  neukomart: 0.05,
   magiceden: 0.02,    // 2%
   tensor:    0.015,   // 1.5% (TSWAP standard; TCOMP may differ)
 };
