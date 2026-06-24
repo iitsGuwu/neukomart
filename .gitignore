@@ -1,0 +1,53 @@
+# ── Secrets / environment ───────────────────────────────────────────────────
+# Never commit real keys. Only the *.example templates are tracked.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+**/id.json
+**/keypair*.json
+**/*-keypair.json
+wallet.json
+# All generated Solana key material lives here and is NEVER committed. This
+# folder is moved to secure custody once the program is mainnet-deployed.
+keys/
+*.json.bak
+# Devnet test fixtures hold generated test-wallet secret keys.
+devnet-assets.json
+devnet-base.json
+# Transient esbuild bundle from the builder-parity test.
+.fe-program.bundle.mjs
+
+# ── Node / frontend ─────────────────────────────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
+.vercel/
+*.local
+# Vite writes a transient resolved-config file next to vite.config.ts.
+vite.config.*.timestamp-*.mjs
+vite.config.*.timestamp-*.js
+*.tsbuildinfo
+
+# ── Rust / Anchor (program/) ────────────────────────────────────────────────
+target/
+.anchor/
+test-ledger/
+**/*.rs.bk
+
+# ── Logs / caches ───────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.cache/
+.DS_Store
+Thumbs.db
+
+# ── Editor / local tooling ──────────────────────────────────────────────────
+.idea/
+.vscode/*
+!.vscode/extensions.json
+# Claude Code local-only settings may carry machine paths / permissions.
+.claude/settings.local.json

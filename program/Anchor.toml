@@ -1,0 +1,25 @@
+[toolchain]
+anchor_version = "0.32.1"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+neuko_market = "Foz4ZtLQKKdSk4V1d6cDp6Gr3gActoQGUhh5B4YTafA2"
+
+[programs.devnet]
+neuko_market = "Foz4ZtLQKKdSk4V1d6cDp6Gr3gActoQGUhh5B4YTafA2"
+
+[programs.mainnet]
+neuko_market = "Foz4ZtLQKKdSk4V1d6cDp6Gr3gActoQGUhh5B4YTafA2"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "mainnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "echo \"no ts tests configured\""

@@ -1,0 +1,291 @@
+import { useCallback } from 'react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
+import toast from 'react-hot-toast';
+import { GBOY_MINT, type CollectionKey } from '../lib/constants';
+import { getConnection } from '../lib/chain';
+import { sendSmart } from '../lib/tx';
+import {
+  buildMeBuyTx,
+  buildTensorBuyTx,
+  ExternalBuyNotConfigured,
+} from '../lib/external-buy';
+import { originUrl } from '../components/ui';
+import { useProgramStatus } from './useWalletData';
+import * as store from '../lib/store';
+import * as prog from '../lib/program';
+import type { Listing, NeukoAsset, SwapSide, Currency } from '../lib/types';
+
+/**
+ * Feature flag: set to true once ME_API_KEY + TENSOR_API_KEY are configured in
+ * Vercel env to activate native in-app execution of ME / Tensor listings.
+ * When false, external listings redirect to the originating marketplace.
+ */
+const NATIVE_EXTERNAL_BUY = false;
+
+/** Max valid SOL amount before lamport overflow (rough practical limit). */
+const MAX_SOL = 1_000_000;
+/** Max valid $GBOY amount (10 decimals). */
+const MAX_GBOY = 1_000_000_000;
+
+function validatePrice(price: number, currency: Currency): boolean {
+  if (!Number.isFinite(price) || price <= 0) return false;
+  return currency === 'sol' ? price < MAX_SOL : price < MAX_GBOY;
+}
+
+/** Returns true when a real on-chain tx path is available. */
+export function useCanTransact() {
+  const { connected } = useWallet();
+  const { data: deployed } = useProgramStatus();
+  return { live: !!connected && !!deployed, deployed: !!deployed };
+}
+
+export function useMarketActions() {
+  const wallet = useWallet();
+  const { live } = useCanTransact();
+  const owner = wallet.publicKey?.toBase58();
+
+  const guard = useCallback(() => {
+    if (!owner) {
+      toast.error('Connect a wallet first');
+      return false;
+    }
+    return true;
+  }, [owner]);
+
+  const buy = useCallback(
+    async (listing: Listing) => {
+      if (!guard()) return;
+
+      // ── External listings (ME / Tensor) ────────────────────────────────────
+      if (listing.origin === 'magiceden' || listing.origin === 'tensor') {
+        if (!validatePrice(listing.price, 'sol')) {
+          toast.error('Invalid listing price — transaction aborted');
+          return;
+        }
+
+        if (NATIVE_EXTERNAL_BUY) {
+          // Native in-app path — requires ME_API_KEY / TENSOR_API_KEY in Vercel env.
+          try {
+            const conn = getConnection();
+            const buildTx = listing.origin === 'magiceden' ? buildMeBuyTx : buildTensorBuyTx;
+            const tx = await toast.promise(
+              buildTx(wallet.publicKey!, listing, conn),
+              {
+                loading: 'Building transaction…',
+                success: 'Ready to sign',
+                error: (e) => (e instanceof ExternalBuyNotConfigured ? 'Opening external…' : `Failed: ${e.message ?? e}`),
+              },
+            );
+            const { blockhash } = await conn.getLatestBlockhash('confirmed');
+            tx.message.recentBlockhash = blockhash;
+            await toast.promise(
+              wallet.sendTransaction(tx, conn),
+              {
+                loading: 'Confirming purchase…',
+                success: `Purchased ${listing.asset.name}!`,
+                error: (e) => `Failed: ${e.message ?? e}`,
+              },
+            );
+            store.buyListing(listing.id, owner!);
+          } catch (e) {
+            if (e instanceof ExternalBuyNotConfigured) {
+              const url = originUrl(listing.origin, listing.asset.id);
+              if (url) window.open(url, '_blank', 'noopener,noreferrer');
+            }
+          }
+        } else {
+          // Redirect path — opens the listing on the originating marketplace.
+          const url = originUrl(listing.origin, listing.asset.id);
+          if (url) window.open(url, '_blank', 'noopener,noreferrer');
+        }
+        return;
+      }
+
+      // ── NEUKO-native listings ───────────────────────────────────────────────
+      if (live) {
+        try {
+          // Reject malformed prices before sending any transaction.
+          if (!validatePrice(listing.price, listing.currency)) {
+            toast.error('Invalid listing price — transaction aborted');
+            return;
+          }
+          const common = {
+            buyer: wallet.publicKey!,
+            seller: new PublicKey(listing.seller),
+            asset: new PublicKey(listing.asset.id),
+            collection: listing.asset.collection,
+            maxPrice: BigInt(Math.ceil(listing.price * (listing.currency === 'sol' ? 1e9 : 1e10) * 1.01)),
+          };
+          const ixs = [];
+          if (listing.currency === 'gboy') {
+            const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
+              await import('@solana/spl-token');
+            const sellerAta = getAssociatedTokenAddressSync(GBOY_MINT, common.seller);
+            ixs.push(
+              createAssociatedTokenAccountIdempotentInstruction(
+                wallet.publicKey!,
+                sellerAta,
+                common.seller,
+                GBOY_MINT,
+              ),
+            );
+          }
+          ixs.push(
+            listing.currency === 'sol'
+              ? prog.buildPurchaseSolIx(common)
+              : prog.buildPurchaseGboyIx(common),
+          );
+          await toast.promise(sendSmart(wallet, ixs), {
+            loading: 'Confirming purchase…',
+            success: 'Purchased!',
+            error: (e) => `Failed: ${e.message ?? e}`,
+          });
+        } catch {
+          /* handled by toast */
+        }
+        return;
+      }
+      store.buyListing(listing.id, owner!);
+      toast.success(`Bought ${listing.asset.name} (simulated)`);
+    },
+    [guard, live, owner, wallet],
+  );
+
+  const list = useCallback(
+    async (asset: NeukoAsset, price: number, currency: Currency) => {
+      if (!guard()) return;
+      // On-chain listing path would build prog.buildListIx and send here.
+      store.createListing(asset, price, currency, owner!);
+      toast.success(`Listed ${asset.name} for ${price} ${currency.toUpperCase()} ${live ? '' : '(simulated)'}`);
+    },
+    [guard, live, owner],
+  );
+
+  const cancelList = useCallback(
+    async (assetId: string) => {
+      if (!guard()) return;
+      store.cancelListing(assetId);
+      toast.success('Listing cancelled');
+    },
+    [guard],
+  );
+
+  const createSwap = useCallback(
+    async (give: SwapSide, want: SwapSide, taker?: string, counteredFrom?: string) => {
+      if (!guard()) return;
+      store.createSwap(give, want, owner!, taker, counteredFrom);
+      toast.success(`${counteredFrom ? 'Counter offer' : 'Swap offer'} created ${live ? '' : '(simulated)'}`);
+    },
+    [guard, live, owner],
+  );
+
+  const acceptSwap = useCallback(
+    async (swapId: string) => {
+      if (!guard()) return;
+      store.acceptSwap(swapId, owner!);
+      toast.success(`Swap accepted ${live ? '' : '(simulated)'}`);
+    },
+    [guard, live, owner],
+  );
+
+  const cancelSwap = useCallback(
+    async (swapId: string) => {
+      if (!guard()) return;
+      store.cancelSwap(swapId);
+      toast.success('Swap cancelled');
+    },
+    [guard],
+  );
+
+  const makeOffer = useCallback(
+    async (collection: CollectionKey, amount: number, currency: Currency, target?: NeukoAsset) => {
+      if (!guard()) return;
+      store.createOffer(owner!, collection, amount, currency, target);
+      toast.success(`Offer placed: ${amount} ${currency.toUpperCase()} ${live ? '' : '(simulated)'}`);
+    },
+    [guard, live, owner],
+  );
+
+  const cancelOffer = useCallback(
+    async (offerId: string) => {
+      if (!guard()) return;
+      store.cancelOffer(offerId);
+      toast.success('Offer withdrawn');
+    },
+    [guard],
+  );
+
+  const acceptOffer = useCallback(
+    async (offerId: string, asset: NeukoAsset) => {
+      if (!guard()) return;
+      store.acceptOffer(offerId, owner!, asset);
+      toast.success(`Offer accepted ${live ? '' : '(simulated)'}`);
+    },
+    [guard, live, owner],
+  );
+
+  /** Batch-buy many listings, chunked so each tx stays under the size/CU limit. */
+  const sweep = useCallback(
+    async (listings: Listing[]) => {
+      if (!guard() || listings.length === 0) return;
+      if (live) {
+        const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
+          await import('@solana/spl-token');
+        const CHUNK = 5; // conservative; ALTs let more fit, but stay safe
+        const chunks: Listing[][] = [];
+        for (let i = 0; i < listings.length; i += CHUNK) chunks.push(listings.slice(i, i + CHUNK));
+
+        await toast.promise(
+          (async () => {
+            for (let c = 0; c < chunks.length; c++) {
+              const ixs = [];
+              for (const l of chunks[c]) {
+                const common = {
+                  buyer: wallet.publicKey!,
+                  seller: new PublicKey(l.seller),
+                  asset: new PublicKey(l.asset.id),
+                  collection: l.asset.collection,
+                  maxPrice: BigInt(Math.ceil(l.price * (l.currency === 'sol' ? 1e9 : 1e10) * 1.01)),
+                };
+                if (l.currency === 'gboy') {
+                  const sellerAta = getAssociatedTokenAddressSync(GBOY_MINT, common.seller);
+                  ixs.push(
+                    createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, sellerAta, common.seller, GBOY_MINT),
+                  );
+                  ixs.push(prog.buildPurchaseGboyIx(common));
+                } else {
+                  ixs.push(prog.buildPurchaseSolIx(common));
+                }
+              }
+              await sendSmart(wallet, ixs);
+            }
+          })(),
+          {
+            loading: `Sweeping ${listings.length} items${chunks.length > 1 ? ` in ${chunks.length} txns` : ''}…`,
+            success: 'Swept!',
+            error: (e) => `Failed: ${e.message ?? e}`,
+          },
+        );
+        return;
+      }
+      listings.forEach((l) => store.buyListing(l.id, owner!));
+      toast.success(`Swept ${listings.length} item${listings.length > 1 ? 's' : ''} (simulated)`);
+    },
+    [guard, live, owner, wallet],
+  );
+
+  return {
+    buy,
+    list,
+    cancelList,
+    createSwap,
+    acceptSwap,
+    cancelSwap,
+    makeOffer,
+    cancelOffer,
+    acceptOffer,
+    sweep,
+    live,
+  };
+}
