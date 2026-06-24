@@ -9,12 +9,11 @@ import {
   dasAssetsByOwner,
   dasEcosystemFull,
 } from '../lib/chain';
-import { demoInventory, seedMarket, seedFromIndexer, seedFromLive, isSeeded, useMarketState } from '../lib/store';
+import { seedFromIndexer, seedFromLive, isSeeded } from '../lib/store';
 import { loadIndexedMarket } from '../lib/indexer';
 import { loadLiveMarket } from '../lib/live-market';
 import { ALL_ASSETS } from '../lib/seed';
 import type { NeukoAsset } from '../lib/types';
-import { DEMO_MODE } from '../lib/constants';
 
 /**
  * Every ecosystem asset (both collections, fully paginated) for browsing,
@@ -63,9 +62,11 @@ export function useSeedMarket() {
       // 2) Live Magic Eden listings/sales (real prices today, pre-deploy).
       const live = await loadLiveMarket(assetMap);
       if (cancelled || isSeeded()) return;
-      if (live) seedFromLive(live, assets);
-      // 3) Bundled demo set (offline / ME unreachable).
-      else seedMarket(assets);
+      if (live) {
+        seedFromLive(live, assets);
+      } else {
+        seedFromLive({ listings: [], activity: [] }, assets);
+      }
     })();
     return () => {
       cancelled = true;
@@ -98,13 +99,11 @@ export function useProgramStatus() {
 
 /**
  * The connected wallet's ecosystem holdings. Uses live DAS data when the RPC
- * supports it; otherwise falls back to a deterministic demo inventory so the
- * portfolio / list / swap flows are reviewable.
+ * supports it; otherwise falls back to a empty inventory.
  */
 export function useMyAssets() {
   const { publicKey } = useWallet();
   const key = publicKey?.toBase58();
-  const market = useMarketState();
 
   const query = useQuery({
     queryKey: ['my-assets', key],
@@ -115,37 +114,15 @@ export function useMyAssets() {
         const live = await dasAssetsByOwner(key!);
         return { assets: live, live: true };
       } catch {
-        // DAS unsupported on this RPC — fall back to a demo inventory.
-        if (DEMO_MODE) return { assets: demoInventory(key!), live: false };
+        // DAS unsupported on this RPC — return empty
         return { assets: [], live: false };
       }
     },
   });
 
-  // Apply local demo ownership transfers (buys / swaps) on top.
-  const base = query.data?.assets ?? [];
-  const owned = base.filter((a) => {
-    const o = market.ownership[a.id];
-    return !o || o === key;
-  });
-  const gained = Object.entries(market.ownership)
-    .filter(([, owner]) => owner === key)
-    .map(([id]) => [...market.listings.map((l) => l.asset), ...allAssetsFlat(market)].find((a) => a.id === id))
-    .filter((a): a is NeukoAsset => !!a && !owned.some((o) => o.id === a.id));
-
   return {
     ...query,
-    assets: [...owned, ...gained],
+    assets: query.data?.assets ?? [],
     live: query.data?.live ?? false,
   };
-}
-
-function allAssetsFlat(market: ReturnType<typeof useMarketState>): NeukoAsset[] {
-  const set = new Map<string, NeukoAsset>();
-  market.listings.forEach((l) => set.set(l.asset.id, l.asset));
-  market.swaps.forEach((s) => {
-    s.give.assets.forEach((a) => set.set(a.id, a));
-    s.want.assets.forEach((a) => set.set(a.id, a));
-  });
-  return [...set.values()];
 }

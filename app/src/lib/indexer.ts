@@ -65,7 +65,6 @@ export async function loadIndexedMarket(
       currency: l.currency,
       origin: 'neukomart' as const,
       createdAt: l.createdAt,
-      demo: false,
     }));
 
   const offers: Offer[] = (data.offers || []).map((o) => {
@@ -82,7 +81,6 @@ export async function loadIndexedMarket(
       currency: o.currency,
       createdAt: o.createdAt,
       status: 'open',
-      demo: false,
     };
   });
 

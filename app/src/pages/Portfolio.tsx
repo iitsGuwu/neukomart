@@ -77,13 +77,6 @@ export function Portfolio() {
         </div>
       </div>
 
-      {!live && (
-        <div className="mb-6 rounded-xl bg-neon/[0.06] border border-neon/20 px-4 py-3 text-sm text-slate-300 flex items-center gap-2">
-          <Sparkles size={15} className="text-neon" />
-          Showing a demo inventory. Add a DAS-enabled RPC (<code className="font-mono text-xs">VITE_RPC_URL</code>) to index your real on-chain holdings.
-        </div>
-      )}
-
       {/* my listings */}
       {myListings.length > 0 && (
         <section className="mb-10">

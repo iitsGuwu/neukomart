@@ -88,7 +88,6 @@ export function useMarketActions() {
                 error: (e) => `Failed: ${e.message ?? e}`,
               },
             );
-            store.buyListing(listing.id, owner!);
           } catch (e) {
             if (e instanceof ExternalBuyNotConfigured) {
               const url = originUrl(listing.origin, listing.asset.id);
@@ -155,10 +154,9 @@ export function useMarketActions() {
         }
         return;
       }
-      store.buyListing(listing.id, owner!);
-      toast.success(`Bought ${listing.asset.name} (simulated)`);
+      toast.error('Purchase not available — NEUKO program not detected on this network');
     },
-    [guard, live, owner, wallet],
+    [guard, live, wallet],
   );
 
   const list = useCallback(
@@ -188,10 +186,9 @@ export function useMarketActions() {
         }
         return;
       }
-      store.createListing(asset, price, currency, owner!);
-      toast.success(`Listed ${asset.name} for ${price} ${currency.toUpperCase()} (simulated)`);
+      toast.error('Listing not available — NEUKO program not detected on this network');
     },
-    [guard, live, owner, wallet],
+    [guard, live, wallet],
   );
 
   const cancelList = useCallback(
@@ -219,8 +216,7 @@ export function useMarketActions() {
         }
         return;
       }
-      store.cancelListing(assetId);
-      toast.success('Listing cancelled');
+      toast.error('Delisting not available — NEUKO program not detected on this network');
     },
     [guard, live, market.listings, wallet],
   );
@@ -228,26 +224,23 @@ export function useMarketActions() {
   const createSwap = useCallback(
     async (give: SwapSide, want: SwapSide, taker?: string, counteredFrom?: string) => {
       if (!guard()) return;
-      store.createSwap(give, want, owner!, taker, counteredFrom);
-      toast.success(`${counteredFrom ? 'Counter offer' : 'Swap offer'} created ${live ? '' : '(simulated)'}`);
+      toast.error('Swaps are currently disabled');
     },
-    [guard, live, owner],
+    [guard],
   );
 
   const acceptSwap = useCallback(
     async (swapId: string) => {
       if (!guard()) return;
-      store.acceptSwap(swapId, owner!);
-      toast.success(`Swap accepted ${live ? '' : '(simulated)'}`);
+      toast.error('Swaps are currently disabled');
     },
-    [guard, live, owner],
+    [guard],
   );
 
   const cancelSwap = useCallback(
     async (swapId: string) => {
       if (!guard()) return;
-      store.cancelSwap(swapId);
-      toast.success('Swap cancelled');
+      toast.error('Swaps are currently disabled');
     },
     [guard],
   );
@@ -299,10 +292,9 @@ export function useMarketActions() {
         }
         return;
       }
-      store.createOffer(owner!, collection, amount, currency, target);
-      toast.success(`Offer placed: ${amount} ${currency.toUpperCase()} (simulated)`);
+      toast.error('Offers not available — NEUKO program not detected on this network');
     },
-    [guard, live, owner, wallet],
+    [guard, live, wallet],
   );
 
   const cancelOffer = useCallback(
@@ -338,8 +330,7 @@ export function useMarketActions() {
         }
         return;
       }
-      store.cancelOffer(offerId);
-      toast.success('Offer withdrawn');
+      toast.error('Cancellation not available — NEUKO program not detected on this network');
     },
     [guard, live, wallet],
   );
@@ -410,10 +401,9 @@ export function useMarketActions() {
         }
         return;
       }
-      store.acceptOffer(offerId, owner!, asset);
-      toast.success(`Offer accepted (simulated)`);
+      toast.error('Accepting offers not available — NEUKO program not detected on this network');
     },
-    [guard, live, owner, wallet],
+    [guard, live, wallet],
   );
 
   /** Batch-buy many listings, chunked so each tx stays under the size/CU limit. */
@@ -463,10 +453,9 @@ export function useMarketActions() {
         );
         return;
       }
-      listings.forEach((l) => store.buyListing(l.id, owner!));
-      toast.success(`Swept ${listings.length} item${listings.length > 1 ? 's' : ''} (simulated)`);
+      toast.error('Sweep purchase not available — NEUKO program not detected on this network');
     },
-    [guard, live, owner, wallet],
+    [guard, live, wallet],
   );
 
   return {

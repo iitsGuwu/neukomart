@@ -46,7 +46,7 @@ export function Marketplace() {
   const [floorBid, setFloorBid] = useState(false);
   const [view, setView] = useState<View>('grid3');
 
-  const isPreview = market.listings.length > 0 && market.listings.some((l) => l.demo);
+  const isPreview = false;
 
   const listingByAsset = useMemo(
     () => new Map(market.listings.map((l) => [l.asset.id, l])),
@@ -168,7 +168,7 @@ export function Marketplace() {
       <SectionTitle
         kicker="Marketplace"
         title="Browse the collections"
-        subtitle="Every Badge & Harmie, filterable by trait, background, price and listing status. Zero marketplace fees."
+        subtitle="Every Badge & Harmie, filterable by trait, background, price and listing status."
       />
 
       {isPreview && (
@@ -352,7 +352,7 @@ function FilterSidebar(props: {
 
   const SOURCES: { v: SourceFilter; label: string; color?: string }[] = [
     { v: 'all',       label: 'All' },
-    { v: 'neukomart', label: 'NEUKO',      color: ORIGIN_META.neukomart.color },
+    { v: 'neukomart', label: 'NEUKOMART',  color: ORIGIN_META.neukomart.color },
     { v: 'magiceden', label: 'Magic Eden', color: ORIGIN_META.magiceden.color },
     { v: 'tensor',    label: 'Tensor',     color: ORIGIN_META.tensor.color },
   ];

@@ -32,8 +32,6 @@ export interface Listing {
   createdAt: number; // unix seconds
   /** marketplace the listing comes from. */
   origin?: MarketOrigin;
-  /** true if this lives only in the local demo store (not yet on-chain). */
-  demo?: boolean;
 }
 
 export interface SwapSide {
@@ -52,7 +50,6 @@ export interface SwapOffer {
   want: SwapSide; // what the maker requests
   createdAt: number;
   status: SwapStatus;
-  demo?: boolean;
   /** id of the offer this one counters, if any. */
   counteredFrom?: string;
 }
@@ -71,7 +68,6 @@ export interface Offer {
   currency: Currency;
   createdAt: number;
   status: OfferStatus;
-  demo?: boolean;
 }
 
 export type ActivityKind = 'list' | 'sale' | 'swap' | 'offer';

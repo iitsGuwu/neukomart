@@ -44,7 +44,6 @@ export async function loadLiveMarket(assetMap: Map<string, NeukoAsset>): Promise
           currency: 'sol',
           origin: l.origin,
           createdAt: now,
-          demo: false,
         });
       }
       for (const s of acts) {
