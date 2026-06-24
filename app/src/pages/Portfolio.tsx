@@ -47,7 +47,7 @@ export function Portfolio() {
         <h2 className="mt-6 font-display text-2xl font-bold">Connect your wallet</h2>
         <p className="mt-2 text-slate-400">See your Badges, Harmies and $GBOY, then list or swap in a click.</p>
         <div className="mt-6 flex justify-center">
-          <WalletMultiButton>Connect</WalletMultiButton>
+          <WalletMultiButton />
         </div>
       </div>
     );
