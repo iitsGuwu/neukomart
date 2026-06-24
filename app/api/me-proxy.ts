@@ -1,15 +1,20 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 /**
- * Server-side proxy for the Magic Eden public API (no CORS headers of its own,
- * and a shared egress IP benefits from one retry layer). Mirrors the Vite dev
- * proxy at `/api/magiceden`.
+ * Server-side proxy for the Magic Eden public API (it sends no CORS headers of
+ * its own, and a shared egress IP benefits from one retry layer).
+ *
+ * The browser calls `/api/magiceden/<me-path>?<query>`; a rewrite in vercel.json
+ * maps that to `/api/me-proxy?p=<me-path>` (preserving the original query) so a
+ * FLAT function handles it. A nested catch-all (`magiceden/[...path].ts`) is not
+ * reliably registered by Vercel's zero-config function detection on a non-Next
+ * project and 404s in production — this avoids that entirely.
  *
  *   /api/magiceden/v2/collections/harmies/listings?...  ->
  *   https://api-mainnet.magiceden.dev/v2/collections/harmies/listings?...
  *
- * Only allow-listed path prefixes are forwarded to prevent this endpoint from
- * being used as a general-purpose HTTP relay (H-3).
+ * Only allow-listed path prefixes are forwarded so this can't be used as a
+ * general-purpose HTTP relay.
  */
 const ME = 'https://api-mainnet.magiceden.dev';
 
@@ -19,26 +24,33 @@ const ALLOWED_PREFIXES = ['v2/collections/'];
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
 
-  const segs = req.query.path;
-  const segArr = Array.isArray(segs) ? segs : segs != null ? [String(segs)] : [];
+  // `p` is the Magic Eden path, set by the vercel.json rewrite (`:path*` -> p).
+  // Tolerate either a slash-joined string or an array of segments.
+  const rawP = req.query.p;
+  const path = Array.isArray(rawP) ? rawP.join('/') : rawP != null ? String(rawP) : '';
+  const segArr = path.split('/');
 
   // Reject path-traversal / separator tricks before anything else: a segment of
-  // ".."/"." (or one smuggling its own separators) would let `fetch` normalize
-  // the URL back out of the allow-listed prefix and onto other ME endpoints.
-  if (segArr.some((s) => s === '..' || s === '.' || s.includes('/') || s.includes('\\') || s.includes('%2e') || s.includes('%2f'))) {
+  // ".."/"."/empty (or one smuggling its own separators) would let `fetch`
+  // normalize the URL back out of the allow-listed prefix onto other endpoints.
+  if (
+    !path ||
+    segArr.some(
+      (s) => s === '' || s === '.' || s === '..' || s.includes('\\') || s.includes('%2e') || s.includes('%2f'),
+    )
+  ) {
     return res.status(400).json({ error: 'invalid path' });
   }
-  const path = segArr.join('/');
 
-  // H-3: Only allow access to known ME API path prefixes.
-  const isAllowed = ALLOWED_PREFIXES.some((prefix) => path.startsWith(prefix));
-  if (!isAllowed) {
+  // Only allow access to known ME API path prefixes.
+  if (!ALLOWED_PREFIXES.some((prefix) => path.startsWith(prefix))) {
     return res.status(403).json({ error: 'path not allowed' });
   }
 
+  // Forward every query param except our internal `p`.
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(req.query)) {
-    if (k === 'path') continue;
+    if (k === 'p') continue;
     if (Array.isArray(v)) v.forEach((x) => qs.append(k, x));
     else if (v != null) qs.set(k, String(v));
   }
