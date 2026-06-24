@@ -66,7 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // Validate parameters.
-  const { buyer, owner, mint, price } = req.query as Record<string, string | undefined>;
+  const { buyer, owner, mint, price } = (req.query || {}) as Record<string, string | undefined>;
   if (!buyer || !isValidPubkey(buyer)) return res.status(400).json({ error: 'invalid buyer' });
   if (!owner || !isValidPubkey(owner)) return res.status(400).json({ error: 'invalid owner (seller)' });
   if (!mint || !isValidPubkey(mint)) return res.status(400).json({ error: 'invalid mint' });

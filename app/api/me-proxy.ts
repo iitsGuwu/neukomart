@@ -1,37 +1,60 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import https from 'https';
 
 /**
  * Server-side proxy for the Magic Eden public API (it sends no CORS headers of
  * its own, and a shared egress IP benefits from one retry layer).
  *
- * The browser calls `/api/magiceden/<me-path>?<query>`; a rewrite in vercel.json
- * maps that to `/api/me-proxy?p=<me-path>` (preserving the original query) so a
- * FLAT function handles it. A nested catch-all (`magiceden/[...path].ts`) is not
- * reliably registered by Vercel's zero-config function detection on a non-Next
- * project and 404s in production — this avoids that entirely.
- *
- *   /api/magiceden/v2/collections/harmies/listings?...  ->
- *   https://api-mainnet.magiceden.dev/v2/collections/harmies/listings?...
- *
- * Only allow-listed path prefixes are forwarded so this can't be used as a
- * general-purpose HTTP relay.
+ * This version uses the native Node 'https' module to ensure full compatibility
+ * across all Node.js runtime versions on Vercel without relying on global 'fetch'.
  */
 const ME = 'https://api-mainnet.magiceden.dev';
 
 /** Paths the app actually needs — anything else is rejected with 403. */
 const ALLOWED_PREFIXES = ['v2/collections/'];
 
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+interface HttpsResponse {
+  status: number;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+}
+
+function httpsGet(url: string, headers: Record<string, string>): Promise<HttpsResponse> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode ?? 500,
+          headers: res.headers,
+          body: data,
+        });
+      });
+    });
+    req.on('error', (err) => {
+      reject(err);
+    });
+  });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
 
   // `p` is the Magic Eden path, set by the vercel.json rewrite (`:path*` -> p).
   // Tolerate either a slash-joined string or an array of segments.
-  const rawP = req.query.p;
+  const rawP = req.query?.p;
   const path = Array.isArray(rawP) ? rawP.join('/') : rawP != null ? String(rawP) : '';
   const segArr = path.split('/');
 
   // Reject path-traversal / separator tricks before anything else: a segment of
-  // ".."/"."/empty (or one smuggling its own separators) would let `fetch`
+  // ".."/"."/empty (or one smuggling its own separators) would let `httpsGet`
   // normalize the URL back out of the allow-listed prefix onto other endpoints.
   if (
     !path ||
@@ -49,17 +72,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // Forward every query param except our internal `p`.
   const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(req.query)) {
+  for (const [k, v] of Object.entries(req.query || {})) {
     if (k === 'p') continue;
     if (Array.isArray(v)) v.forEach((x) => qs.append(k, x));
     else if (v != null) qs.set(k, String(v));
   }
   const url = `${ME}/${path}${qs.toString() ? `?${qs}` : ''}`;
 
-  let upstream: Response | null = null;
+  let upstream: HttpsResponse | null = null;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      upstream = await fetch(url, { headers: { accept: 'application/json' } });
+      upstream = await httpsGet(url, {
+        accept: 'application/json',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      });
     } catch {
       if (attempt === 4) return res.status(502).json({ error: 'upstream error' });
       await sleep(500 * 2 ** attempt);
@@ -71,12 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (!upstream) return res.status(502).json({ error: 'no response' });
-  const body = await upstream.text();
   res.setHeader('Cache-Control', 's-maxage=45, stale-while-revalidate=120');
   res.setHeader('content-type', 'application/json');
-  return res.status(upstream.status).send(body);
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
+  return res.status(upstream.status).send(upstream.body);
 }
