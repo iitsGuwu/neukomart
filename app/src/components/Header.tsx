@@ -97,7 +97,7 @@ export function Header() {
                 )}
               </IconBtn>
 
-              <WalletMultiButton />
+              <WalletMultiButton>Connect</WalletMultiButton>
               <button className="lg:hidden btn-ghost !p-2 !rounded-lg" onClick={() => setOpen((o) => !o)}>
                 {open ? <X size={18} /> : <Menu size={18} />}
               </button>

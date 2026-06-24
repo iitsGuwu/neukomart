@@ -57,11 +57,11 @@ export function MarketCard({
         <div className="mt-2 flex items-end justify-between gap-2 min-h-[2.4rem]">
           {listing ? (
             <>
-              <div>
+              <div className="min-w-0 flex-1">
                 <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">Price</div>
                 <PriceTag amount={listing.price} currency={listing.currency} size="sm" />
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <CartToggle listing={listing} />
                 {onBuy && (
                   <button onClick={() => onBuy(listing)} className="btn-primary !px-3.5 !py-2 text-xs">

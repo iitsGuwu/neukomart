@@ -68,10 +68,10 @@ export function PriceTag({
 }) {
   const txt = size === 'lg' ? 'text-xl' : size === 'sm' ? 'text-sm' : 'text-base';
   return (
-    <span className={clsx('inline-flex items-center gap-1.5 font-semibold', txt, className)}>
+    <span className={clsx('inline-flex items-center gap-1.5 font-semibold min-w-0', txt, className)}>
       <CurrencyIcon currency={currency} size={size === 'lg' ? 20 : 15} />
-      <span className="tabular-nums">{formatAmount(amount, currency)}</span>
-      <span className="text-slate-400 font-medium text-[0.82em]">{currencyLabel(currency)}</span>
+      <span className="tabular-nums truncate">{formatAmount(amount, currency)}</span>
+      <span className="text-slate-400 font-medium text-[0.82em] shrink-0">{currencyLabel(currency)}</span>
     </span>
   );
 }
