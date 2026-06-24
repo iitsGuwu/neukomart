@@ -24,7 +24,10 @@ import { createSignerFromKeypair, signerIdentity, publicKey as umiPk } from '@me
 import { transferV1 } from '@metaplex-foundation/mpl-core';
 
 export { BN, SystemProgram, PublicKey, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync };
-export const DEVNET = 'https://api.devnet.solana.com';
+// Defaults to the public devnet RPC; override with DEVNET_RPC (e.g. a Helius
+// devnet endpoint) to avoid the public RPC's aggressive rate limits when
+// running the full suite.
+export const DEVNET = process.env.DEVNET_RPC || 'https://api.devnet.solana.com';
 export const MPL_CORE = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
 export const SYS = SystemProgram.programId;
 

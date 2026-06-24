@@ -88,19 +88,19 @@ async function clearListing(a: PublicKey) {
     const args = { offeredCount: 1, requestedAssets: [requested], solOffered: new BN(0), gboyOffered: new BN(0), solRequested: new BN(0), gboyRequested: new BN(0), taker: B.publicKey };
     await retry(() =>
       program.methods.createSwap(nonce, args)
-        .accountsPartial({ maker: A.publicKey, swapOffer: swap, makerGboy: undefined, swapGboy: undefined, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SYS })
+        .accountsPartial({ maker: A.publicKey, swapOffer: swap, makerGboy: null, swapGboy: null, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SYS })
         .remainingAccounts([ra(offered, true), ra(BADGES, false)])
         .signers([A]).rpc(), 'create-swap');
     // A (the maker, not designated taker B) tries to accept.
     await expectRevert(() =>
       program.methods.acceptSwap()
-        .accountsPartial({ taker: A.publicKey, maker: A.publicKey, swapOffer: swap, takerGboy: undefined, makerGboy: undefined, swapGboy: undefined, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
+        .accountsPartial({ taker: A.publicKey, maker: A.publicKey, swapOffer: swap, takerGboy: null, makerGboy: null, swapGboy: null, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
         .remainingAccounts([ra(requested, true), ra(BADGES, false), ra(offered, true), ra(BADGES, false)])
         .signers([A]).rpc(), /NotDesignatedTaker/, 'designated-taker');
     // cleanup: maker cancels swap, reclaiming the escrowed badge (also covers cancel_swap).
     await retry(() =>
       program.methods.cancelSwap()
-        .accountsPartial({ maker: A.publicKey, swapOffer: swap, makerGboy: undefined, swapGboy: undefined, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
+        .accountsPartial({ maker: A.publicKey, swapOffer: swap, makerGboy: null, swapGboy: null, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
         .remainingAccounts([ra(offered, true), ra(BADGES, false)])
         .signers([A]).rpc(), 'cancel-swap');
     assert((await ownerOf(offered)) === A.publicKey.toBase58(), 'maker should reclaim the escrowed badge on cancel');
@@ -112,22 +112,22 @@ async function clearListing(a: PublicKey) {
     const nonce = new BN(Date.now());
     const swap = swapPda(A.publicKey, nonce);
     // Maker offers a badge and REQUESTS $GBOY — the taker must pay the maker.
-    const args = { offeredCount: 1, requestedAssets: [], solOffered: new BN(0), gboyOffered: new BN(0), solRequested: new BN(0), gboyRequested: gboyUnits(10), taker: undefined };
+    const args = { offeredCount: 1, requestedAssets: [], solOffered: new BN(0), gboyOffered: new BN(0), solRequested: new BN(0), gboyRequested: gboyUnits(10), taker: null };
     await retry(() =>
       program.methods.createSwap(nonce, args)
-        .accountsPartial({ maker: A.publicKey, swapOffer: swap, makerGboy: undefined, swapGboy: undefined, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SYS })
+        .accountsPartial({ maker: A.publicKey, swapOffer: swap, makerGboy: null, swapGboy: null, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SYS })
         .remainingAccounts([ra(offered, true), ra(BADGES, false)])
         .signers([A]).rpc(), 'create-swap-gboyreq');
     // Attack: taker B supplies its OWN ata as maker_gboy → would redirect payment to itself.
     const takerAta = walletAta(B);
     await expectRevert(() =>
       program.methods.acceptSwap()
-        .accountsPartial({ taker: B.publicKey, maker: A.publicKey, swapOffer: swap, takerGboy: takerAta, makerGboy: takerAta, swapGboy: undefined, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
+        .accountsPartial({ taker: B.publicKey, maker: A.publicKey, swapOffer: swap, takerGboy: takerAta, makerGboy: takerAta, swapGboy: null, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
         .remainingAccounts([ra(offered, true), ra(BADGES, false)])
         .signers([B]).rpc(), /WrongToken/, 'redirect-attack');
     await retry(() =>
       program.methods.cancelSwap()
-        .accountsPartial({ maker: A.publicKey, swapOffer: swap, makerGboy: undefined, swapGboy: undefined, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
+        .accountsPartial({ maker: A.publicKey, swapOffer: swap, makerGboy: null, swapGboy: null, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
         .remainingAccounts([ra(offered, true), ra(BADGES, false)])
         .signers([A]).rpc(), 'cancel-swap');
   });
@@ -136,17 +136,17 @@ async function clearListing(a: PublicKey) {
     const nonce = new BN(Date.now());
     const offer = offerPda(B.publicKey, nonce);
     await retry(() =>
-      program.methods.createOffer(nonce, { collection: HARMIES, asset: undefined, amount: new BN(10_000_000), currency: { sol: {} } })
-        .accountsPartial({ bidder: B.publicKey, offer, bidderGboy: undefined, offerGboy: undefined, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SYS })
+      program.methods.createOffer(nonce, { collection: HARMIES, asset: null, amount: new BN(10_000_000), currency: { sol: {} } })
+        .accountsPartial({ bidder: B.publicKey, offer, bidderGboy: null, offerGboy: null, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SYS })
         .signers([B]).rpc(), 'create-offer');
     // A tries to cancel B's offer — PDA is seed-bound to the bidder, so it cannot resolve for A.
     await expectRevert(() =>
       program.methods.cancelOffer()
-        .accountsPartial({ bidder: A.publicKey, offer, bidderGboy: undefined, offerGboy: undefined, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
+        .accountsPartial({ bidder: A.publicKey, offer, bidderGboy: null, offerGboy: null, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
         .signers([A]).rpc(), /NotBidder|ConstraintSeeds|2006/, 'non-bidder-cancel');
     await retry(() =>
       program.methods.cancelOffer()
-        .accountsPartial({ bidder: B.publicKey, offer, bidderGboy: undefined, offerGboy: undefined, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
+        .accountsPartial({ bidder: B.publicKey, offer, bidderGboy: null, offerGboy: null, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
         .signers([B]).rpc(), 'cancel-offer');
   });
 
@@ -191,12 +191,16 @@ async function clearListing(a: PublicKey) {
     const sellerBefore = await gboyBal(sellerAta);
     const creator = creatorFor(HARMIES);
     const creatorAta = await ensureGboyAta(creator);
+    const creatorBefore = await gboyBal(creatorAta);
     await retry(() =>
       program.methods.acceptOffer()
         .accountsPartial({ seller: A.publicKey, bidder: B.publicKey, offer, asset: a, collection: HARMIES, creator, creatorGboy: creatorAta, offerGboy: offerAta, sellerGboy: sellerAta, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
         .signers([A]).rpc(), 'accept-offer-gboy');
     assert((await ownerOf(a)) === B.publicKey.toBase58(), 'asset should go to the bidder');
-    assert((await gboyBal(sellerAta)) - sellerBefore === BigInt(amount.toString()), 'seller paid in $GBOY');
+    const amt = BigInt(amount.toString());
+    const roy = (amt * 500n) / 10000n; // 5% creator royalty
+    assert((await gboyBal(sellerAta)) - sellerBefore === amt - roy, 'seller should be paid 95% in $GBOY');
+    assert((await gboyBal(creatorAta)) - creatorBefore === roy, 'creator should be paid 5% royalty in $GBOY');
     assert((await conn.getAccountInfo(offerAta)) === null, 'escrow ATA should be closed');
   });
 
@@ -208,7 +212,7 @@ async function clearListing(a: PublicKey) {
     const bidderAta = walletAta(B);
     const before = await gboyBal(bidderAta);
     await retry(() =>
-      program.methods.createOffer(nonce, { collection: HARMIES, asset: undefined, amount, currency: { gboy: {} } })
+      program.methods.createOffer(nonce, { collection: HARMIES, asset: null, amount, currency: { gboy: {} } })
         .accountsPartial({ bidder: B.publicKey, offer, bidderGboy: bidderAta, offerGboy: offerAta, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SYS })
         .signers([B]).rpc(), 'create');
     await retry(() =>
@@ -228,7 +232,7 @@ async function clearListing(a: PublicKey) {
     const amount = gboyUnits(20);
     const swapAta = await ensureGboyAta(swap);
     const takerAta = walletAta(B);
-    const args = { offeredCount: 0, requestedAssets: [requested], solOffered: new BN(0), gboyOffered: amount, solRequested: new BN(0), gboyRequested: new BN(0), taker: undefined };
+    const args = { offeredCount: 0, requestedAssets: [requested], solOffered: new BN(0), gboyOffered: amount, solRequested: new BN(0), gboyRequested: new BN(0), taker: null };
     await retry(() =>
       program.methods.createSwap(nonce, args)
         .accountsPartial({ maker: A.publicKey, swapOffer: swap, makerGboy: walletAta(A), swapGboy: swapAta, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SYS })
@@ -238,7 +242,7 @@ async function clearListing(a: PublicKey) {
     const takerBefore = await gboyBal(takerAta);
     await retry(() =>
       program.methods.acceptSwap()
-        .accountsPartial({ taker: B.publicKey, maker: A.publicKey, swapOffer: swap, takerGboy: takerAta, makerGboy: undefined, swapGboy: swapAta, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
+        .accountsPartial({ taker: B.publicKey, maker: A.publicKey, swapOffer: swap, takerGboy: takerAta, makerGboy: null, swapGboy: swapAta, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS })
         .remainingAccounts([ra(requested, true), ra(BADGES, false)])
         .signers([B]).rpc(), 'accept-swap-gboy');
     assert((await ownerOf(requested)) === A.publicKey.toBase58(), 'maker should receive the requested NFT');
