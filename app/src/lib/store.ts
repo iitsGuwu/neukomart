@@ -21,12 +21,16 @@ import type { CollectionKey } from './constants';
  */
 
 /** Increment when the shape of MarketState changes to auto-clear stale caches. */
-const STATE_VERSION = 6;
+const STATE_VERSION = 7;
 
 interface MarketState {
   /** Schema version — used to detect stale localStorage caches. */
   _v: number;
   seeded: boolean;
+  /** True when the persisted seed is the offline DEMO fallback (live data was
+   *  unreachable). Treated as "not finally seeded" so the next page load
+   *  re-attempts live data and self-heals once the feed is reachable again. */
+  demoSeed: boolean;
   listings: Listing[];
   swaps: SwapOffer[];
   activity: ActivityItem[];
@@ -39,7 +43,7 @@ interface MarketState {
 const STORAGE_KEY = 'neuko-market-state-v4';
 
 function empty(): MarketState {
-  return { _v: STATE_VERSION, seeded: false, listings: [], swaps: [], activity: [], offers: [], ownership: {}, diamondHands: {} };
+  return { _v: STATE_VERSION, seeded: false, demoSeed: false, listings: [], swaps: [], activity: [], offers: [], ownership: {}, diamondHands: {} };
 }
 
 function load(): MarketState {
@@ -90,16 +94,21 @@ export function useMarketState(): MarketState {
   return useSyncExternalStore(subscribe, () => state, () => state);
 }
 
+/** "Finally" seeded — a DEMO fallback seed returns false so the next load
+ *  retries live data (see `demoSeed`). */
 export function isSeeded(): boolean {
-  return state.seeded;
+  return state.seeded && !state.demoSeed;
 }
 
-/** One-time seed of the demo market from real assets. */
+/** Offline DEMO seed from real assets — used only when both the indexer and the
+ *  live feed are unreachable. Marked `demoSeed` so a later load can upgrade it
+ *  to live data. */
 export function seedMarket(assets: NeukoAsset[]) {
   if (state.seeded || assets.length === 0) return;
   const built = buildMarket(assets);
   set({
     seeded: true,
+    demoSeed: true,
     listings: built.listings,
     swaps: built.swaps,
     activity: built.activity,
@@ -113,10 +122,12 @@ export function seedFromIndexer(
   idx: { listings: Listing[]; offers: Offer[]; activity: ActivityItem[] },
   assets: NeukoAsset[],
 ) {
-  if (state.seeded) return;
+  // A prior DEMO seed may be upgraded to live; a prior live seed is kept.
+  if (state.seeded && !state.demoSeed) return;
   const demo = buildMarket(assets);
   set({
     seeded: true,
+    demoSeed: false,
     listings: idx.listings,
     offers: idx.offers,
     activity: idx.activity.length ? idx.activity : demo.activity,
@@ -130,10 +141,12 @@ export function seedFromLive(
   live: { listings: Listing[]; activity: ActivityItem[] },
   assets: NeukoAsset[],
 ) {
-  if (state.seeded) return;
+  // A prior DEMO seed may be upgraded to live; a prior live seed is kept.
+  if (state.seeded && !state.demoSeed) return;
   const demo = buildMarket(assets);
   set({
     seeded: true,
+    demoSeed: false,
     listings: live.listings,
     activity: live.activity.length ? live.activity : demo.activity,
     swaps: demo.swaps,
