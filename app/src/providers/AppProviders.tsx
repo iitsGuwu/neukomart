@@ -1,8 +1,7 @@
 import { useMemo, type ReactNode } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
-import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
+import type { Adapter } from '@solana/wallet-adapter-base';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RPC_URL } from '../lib/constants';
 
@@ -13,10 +12,12 @@ const queryClient = new QueryClient({
 });
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  const wallets = useMemo(
-    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
-    [],
-  );
+  // Phantom, Solflare and other modern wallets register themselves via the
+  // Wallet Standard, so the WalletProvider auto-detects them. Passing the
+  // legacy PhantomWalletAdapter/SolflareWalletAdapter in addition creates a
+  // duplicate registration over Phantom's deprecated injection path, which
+  // breaks connect — so we pass none and let Standard detection handle it.
+  const wallets = useMemo<Adapter[]>(() => [], []);
 
   return (
     <ConnectionProvider endpoint={RPC_URL}>
