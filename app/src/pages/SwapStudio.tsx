@@ -127,10 +127,15 @@ export function SwapStudio() {
             <Repeat2 size={16} /> {counterId ? 'Submit counter offer' : 'Create swap offer'}
           </button>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <EcoBadge tone="gboy">0% fee</EcoBadge>
-          <EcoBadge tone="neon">Atomic settlement</EcoBadge>
-          <EcoBadge tone="harm">Escrow-backed</EcoBadge>
+        <div className="mt-4 flex flex-wrap gap-y-2 items-center justify-between gap-2 text-xs text-slate-500">
+          <div className="flex flex-wrap gap-2">
+            <EcoBadge tone="gboy">0% fee</EcoBadge>
+            <EcoBadge tone="neon">Atomic settlement</EcoBadge>
+            <EcoBadge tone="harm">Escrow-backed</EcoBadge>
+          </div>
+          <span className="text-slate-400">
+            Note: Badge type selection is for UI; the on-chain trade locks the exact badge selected.
+          </span>
         </div>
       </div>
 

@@ -156,3 +156,12 @@ export async function expectRevert(fn: () => Promise<unknown>, re: RegExp, label
   }
   throw new Error(`${label}: expected a revert but the tx succeeded`);
 }
+
+export const BADGES_CREATOR = new PublicKey("DQ1LJZ2ET1oHcCgojCN3kXakTQSkuCxgEqXguf2UrYS5");
+export const HARMIES_CREATOR = new PublicKey("57MFtfGrJheHeRzeSpARcUEBqa9jXELGGZrRszysf4VB");
+
+export function creatorFor(collection: PublicKey): PublicKey {
+  if (collection.equals(BADGES)) return BADGES_CREATOR;
+  if (collection.equals(HARMIES)) return HARMIES_CREATOR;
+  throw new Error(`unknown collection: ${collection.toBase58()}`);
+}

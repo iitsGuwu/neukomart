@@ -862,7 +862,7 @@ fn creator_for_collection(collection: &Pubkey) -> Result<Pubkey> {
 
 /// Compute the 5% creator royalty (500 basis points) from a sale price.
 fn compute_royalty(price: u64) -> u64 {
-    price.checked_mul(ROYALTY_BPS).unwrap_or(0) / 10_000
+    ((price as u128) * (ROYALTY_BPS as u128) / 10_000) as u64
 }
 
 /// Verify `asset_ai` is a Core asset that belongs to `collection` and is

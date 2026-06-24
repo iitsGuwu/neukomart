@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import toast from 'react-hot-toast';
-import { GBOY_MINT, type CollectionKey } from '../lib/constants';
+import { GBOY_MINT, GBOY_DECIMALS, COLLECTIONS, type CollectionKey } from '../lib/constants';
 import { getConnection } from '../lib/chain';
 import { sendSmart } from '../lib/tx';
 import {
@@ -44,6 +44,7 @@ export function useMarketActions() {
   const wallet = useWallet();
   const { live } = useCanTransact();
   const owner = wallet.publicKey?.toBase58();
+  const market = store.useMarketState();
 
   const guard = useCallback(() => {
     if (!owner) {
@@ -115,18 +116,26 @@ export function useMarketActions() {
             seller: new PublicKey(listing.seller),
             asset: new PublicKey(listing.asset.id),
             collection: listing.asset.collection,
-            maxPrice: BigInt(Math.ceil(listing.price * (listing.currency === 'sol' ? 1e9 : 1e10) * 1.01)),
+            maxPrice: BigInt(Math.ceil(listing.price * (listing.currency === 'sol' ? 1e9 : 10 ** GBOY_DECIMALS) * 1.01)),
           };
           const ixs = [];
           if (listing.currency === 'gboy') {
             const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
               await import('@solana/spl-token');
             const sellerAta = getAssociatedTokenAddressSync(GBOY_MINT, common.seller);
+            const creator = COLLECTIONS[common.collection].creator;
+            const creatorAta = getAssociatedTokenAddressSync(GBOY_MINT, creator, true);
             ixs.push(
               createAssociatedTokenAccountIdempotentInstruction(
                 wallet.publicKey!,
                 sellerAta,
                 common.seller,
+                GBOY_MINT,
+              ),
+              createAssociatedTokenAccountIdempotentInstruction(
+                wallet.publicKey!,
+                creatorAta,
+                creator,
                 GBOY_MINT,
               ),
             );
@@ -155,20 +164,65 @@ export function useMarketActions() {
   const list = useCallback(
     async (asset: NeukoAsset, price: number, currency: Currency) => {
       if (!guard()) return;
-      // On-chain listing path would build prog.buildListIx and send here.
+      if (live) {
+        try {
+          if (!validatePrice(price, currency)) {
+            toast.error('Invalid price amount');
+            return;
+          }
+          const priceBase = currency === 'sol' ? prog.solToLamports(price) : prog.gboyToBase(price);
+          const ix = prog.buildListIx({
+            seller: wallet.publicKey!,
+            asset: new PublicKey(asset.id),
+            collection: asset.collection,
+            price: priceBase,
+            currency,
+          });
+          await toast.promise(sendSmart(wallet, [ix]), {
+            loading: 'Listing NFT on-chain…',
+            success: 'Listed!',
+            error: (e) => `Failed: ${e.message ?? e}`,
+          });
+        } catch {
+          /* handled by toast */
+        }
+        return;
+      }
       store.createListing(asset, price, currency, owner!);
-      toast.success(`Listed ${asset.name} for ${price} ${currency.toUpperCase()} ${live ? '' : '(simulated)'}`);
+      toast.success(`Listed ${asset.name} for ${price} ${currency.toUpperCase()} (simulated)`);
     },
-    [guard, live, owner],
+    [guard, live, owner, wallet],
   );
 
   const cancelList = useCallback(
     async (assetId: string) => {
       if (!guard()) return;
+      if (live) {
+        try {
+          const listing = market.listings.find((l) => l.asset.id === assetId);
+          if (!listing) {
+            toast.error('Listing not found');
+            return;
+          }
+          const ix = prog.buildCancelListingIx({
+            seller: wallet.publicKey!,
+            asset: new PublicKey(assetId),
+            collection: listing.asset.collection,
+          });
+          await toast.promise(sendSmart(wallet, [ix]), {
+            loading: 'Delisting NFT on-chain…',
+            success: 'Listing cancelled!',
+            error: (e) => `Failed: ${e.message ?? e}`,
+          });
+        } catch {
+          /* handled by toast */
+        }
+        return;
+      }
       store.cancelListing(assetId);
       toast.success('Listing cancelled');
     },
-    [guard],
+    [guard, live, market.listings, wallet],
   );
 
   const createSwap = useCallback(
@@ -201,28 +255,165 @@ export function useMarketActions() {
   const makeOffer = useCallback(
     async (collection: CollectionKey, amount: number, currency: Currency, target?: NeukoAsset) => {
       if (!guard()) return;
+      if (live) {
+        try {
+          if (!validatePrice(amount, currency)) {
+            toast.error('Invalid price amount');
+            return;
+          }
+          const amountBase = currency === 'sol' ? prog.solToLamports(amount) : prog.gboyToBase(amount);
+          const nonce = BigInt(Date.now());
+          const [offer] = prog.offerPda(wallet.publicKey!, nonce);
+          const ixs = [];
+
+          if (currency === 'gboy') {
+            const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
+              await import('@solana/spl-token');
+            const offerGboy = getAssociatedTokenAddressSync(GBOY_MINT, offer, true);
+            ixs.push(
+              createAssociatedTokenAccountIdempotentInstruction(
+                wallet.publicKey!,
+                offerGboy,
+                offer,
+                GBOY_MINT,
+              )
+            );
+          }
+
+          ixs.push(prog.buildCreateOfferIx({
+            bidder: wallet.publicKey!,
+            nonce,
+            collection,
+            asset: target ? new PublicKey(target.id) : null,
+            amount: amountBase,
+            currency,
+          }));
+
+          await toast.promise(sendSmart(wallet, ixs), {
+            loading: 'Creating offer on-chain…',
+            success: 'Offer created!',
+            error: (e) => `Failed: ${e.message ?? e}`,
+          });
+        } catch {
+          /* handled by toast */
+        }
+        return;
+      }
       store.createOffer(owner!, collection, amount, currency, target);
-      toast.success(`Offer placed: ${amount} ${currency.toUpperCase()} ${live ? '' : '(simulated)'}`);
+      toast.success(`Offer placed: ${amount} ${currency.toUpperCase()} (simulated)`);
     },
-    [guard, live, owner],
+    [guard, live, owner, wallet],
   );
 
   const cancelOffer = useCallback(
     async (offerId: string) => {
       if (!guard()) return;
+      if (live) {
+        try {
+          const conn = getConnection();
+          const info = await conn.getAccountInfo(new PublicKey(offerId));
+          if (!info) {
+            toast.error('Offer account not found on-chain');
+            return;
+          }
+          // Read nonce at offset 113 (8 bytes u64 LE)
+          const nonce = info.data.readBigUInt64LE(113);
+          // Read currency at offset 112 (1 byte u8: 0 = SOL, 1 = GBOY)
+          const currencyCode = info.data[112];
+          const currency: Currency = currencyCode === 1 ? 'gboy' : 'sol';
+
+          const ix = prog.buildCancelOfferIx({
+            bidder: wallet.publicKey!,
+            nonce,
+            currency,
+          });
+
+          await toast.promise(sendSmart(wallet, [ix]), {
+            loading: 'Withdrawing offer from on-chain…',
+            success: 'Offer withdrawn!',
+            error: (e) => `Failed: ${e.message ?? e}`,
+          });
+        } catch {
+          /* handled by toast */
+        }
+        return;
+      }
       store.cancelOffer(offerId);
       toast.success('Offer withdrawn');
     },
-    [guard],
+    [guard, live, wallet],
   );
 
   const acceptOffer = useCallback(
     async (offerId: string, asset: NeukoAsset) => {
       if (!guard()) return;
+      if (live) {
+        try {
+          const conn = getConnection();
+          const info = await conn.getAccountInfo(new PublicKey(offerId));
+          if (!info) {
+            toast.error('Offer account not found on-chain');
+            return;
+          }
+          const bidder = new PublicKey(info.data.subarray(8, 40));
+          const collectionPubkey = new PublicKey(info.data.subarray(40, 72));
+          const currencyCode = info.data[112];
+          const nonce = info.data.readBigUInt64LE(113);
+          const currency: Currency = currencyCode === 1 ? 'gboy' : 'sol';
+
+          const collectionKey: CollectionKey =
+            collectionPubkey.toBase58() === COLLECTIONS.badges.address.toBase58()
+              ? 'badges'
+              : 'harmies';
+
+          const ixs = [];
+
+          if (currency === 'gboy') {
+            const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
+              await import('@solana/spl-token');
+            const sellerGboy = getAssociatedTokenAddressSync(GBOY_MINT, wallet.publicKey!);
+            const creator = COLLECTIONS[collectionKey].creator;
+            const creatorGboy = getAssociatedTokenAddressSync(GBOY_MINT, creator, true);
+
+            ixs.push(
+              createAssociatedTokenAccountIdempotentInstruction(
+                wallet.publicKey!,
+                sellerGboy,
+                wallet.publicKey!,
+                GBOY_MINT,
+              ),
+              createAssociatedTokenAccountIdempotentInstruction(
+                wallet.publicKey!,
+                creatorGboy,
+                creator,
+                GBOY_MINT,
+              ),
+            );
+          }
+
+          ixs.push(prog.buildAcceptOfferIx({
+            seller: wallet.publicKey!,
+            bidder,
+            nonce,
+            asset: new PublicKey(asset.id),
+            collection: collectionKey,
+            currency,
+          }));
+
+          await toast.promise(sendSmart(wallet, ixs), {
+            loading: 'Accepting offer on-chain…',
+            success: 'Offer accepted!',
+            error: (e) => `Failed: ${e.message ?? e}`,
+          });
+        } catch {
+          /* handled by toast */
+        }
+        return;
+      }
       store.acceptOffer(offerId, owner!, asset);
-      toast.success(`Offer accepted ${live ? '' : '(simulated)'}`);
+      toast.success(`Offer accepted (simulated)`);
     },
-    [guard, live, owner],
+    [guard, live, owner, wallet],
   );
 
   /** Batch-buy many listings, chunked so each tx stays under the size/CU limit. */
@@ -246,12 +437,15 @@ export function useMarketActions() {
                   seller: new PublicKey(l.seller),
                   asset: new PublicKey(l.asset.id),
                   collection: l.asset.collection,
-                  maxPrice: BigInt(Math.ceil(l.price * (l.currency === 'sol' ? 1e9 : 1e10) * 1.01)),
+                  maxPrice: BigInt(Math.ceil(l.price * (l.currency === 'sol' ? 1e9 : 10 ** GBOY_DECIMALS) * 1.01)),
                 };
                 if (l.currency === 'gboy') {
                   const sellerAta = getAssociatedTokenAddressSync(GBOY_MINT, common.seller);
+                  const creator = COLLECTIONS[common.collection].creator;
+                  const creatorAta = getAssociatedTokenAddressSync(GBOY_MINT, creator, true);
                   ixs.push(
                     createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, sellerAta, common.seller, GBOY_MINT),
+                    createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, creatorAta, creator, GBOY_MINT),
                   );
                   ixs.push(prog.buildPurchaseGboyIx(common));
                 } else {

@@ -99,6 +99,26 @@ function offerPda(bidder: PublicKey, nonce: BN) {
 const ra = (pk: PublicKey, w: boolean) => ({ pubkey: pk, isSigner: false, isWritable: w });
 const gboyUnits = (n: number) => new BN(n).mul(new BN(10).pow(new BN(10)));
 
+const BADGES_CREATOR = new PublicKey("DQ1LJZ2ET1oHcCgojCN3kXakTQSkuCxgEqXguf2UrYS5");
+const HARMIES_CREATOR = new PublicKey("57MFtfGrJheHeRzeSpARcUEBqa9jXELGGZrRszysf4VB");
+
+function creatorFor(collection: PublicKey): PublicKey {
+  if (collection.equals(BADGES)) return BADGES_CREATOR;
+  if (collection.equals(HARMIES)) return HARMIES_CREATOR;
+  throw new Error(`unknown collection: ${collection.toBase58()}`);
+}
+
+async function ensureGboyAta(owner: PublicKey): Promise<PublicKey> {
+  const ata = getAssociatedTokenAddressSync(GBOY, owner, true);
+  if (!(await retry(() => conn.getAccountInfo(ata, 'confirmed'), 'ata-check'))) {
+    const { createAssociatedTokenAccountIdempotentInstruction } = await import('@solana/spl-token');
+    const { sendAndConfirmTransaction, Transaction } = await import('@solana/web3.js');
+    const ix = createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, ata, owner, GBOY);
+    await retry(() => sendAndConfirmTransaction(conn, new Transaction().add(ix), [payer]), 'create-ata');
+  }
+  return ata;
+}
+
 // Make the suite re-runnable: ensure `a` is owned by `want`, transferring it
 // back via MPL Core if a prior run left it with the other test wallet. (We hold
 // both wallet keys, so we can sign as the current owner.)
@@ -165,7 +185,7 @@ function assert(cond: boolean, msg: string) {
     await retry(() =>
       program.methods
         .purchaseWithSol(price)
-        .accountsPartial({ buyer: B.publicKey, seller: A.publicKey, listing, asset: a, collection: HARMIES, mplCoreProgram: MPL_CORE, systemProgram: SYS })
+        .accountsPartial({ buyer: B.publicKey, seller: A.publicKey, listing, asset: a, collection: HARMIES, creator: creatorFor(HARMIES), mplCoreProgram: MPL_CORE, systemProgram: SYS })
         .signers([B])
         .rpc(), 'buy-sol',
     );
@@ -189,12 +209,15 @@ function assert(cond: boolean, msg: string) {
         .rpc(), 'list-gboy',
     );
     const before = await gboyBal(sellerAta);
+    const creator = creatorFor(HARMIES);
+    const creatorAta = await ensureGboyAta(creator);
     await retry(() =>
       program.methods
         .purchaseWithGboy(price)
         .accountsPartial({
           buyer: B.publicKey, seller: A.publicKey, listing, gboyMint: GBOY,
           buyerGboy: buyerAta, sellerGboy: sellerAta, asset: a, collection: HARMIES,
+          creator, creatorGboy: creatorAta,
           mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS,
         })
         .signers([B])
@@ -247,13 +270,13 @@ function assert(cond: boolean, msg: string) {
     const args = {
       offeredCount: 1, requestedAssets: [requested],
       solOffered: new BN(0), gboyOffered: new BN(0), solRequested: new BN(0), gboyRequested: new BN(0),
-      taker: null,
+      taker: undefined,
     };
     await retry(() =>
       program.methods
         .createSwap(nonce, args)
         .accountsPartial({
-          maker: A.publicKey, swapOffer: swap, makerGboy: null, swapGboy: null,
+          maker: A.publicKey, swapOffer: swap, makerGboy: undefined, swapGboy: undefined,
           mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SYS,
         })
         .remainingAccounts([ra(offered, true), ra(BADGES, false)])
@@ -266,7 +289,7 @@ function assert(cond: boolean, msg: string) {
         .acceptSwap()
         .accountsPartial({
           taker: B.publicKey, maker: A.publicKey, swapOffer: swap,
-          takerGboy: null, makerGboy: null, swapGboy: null,
+          takerGboy: undefined, makerGboy: undefined, swapGboy: undefined,
           mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS,
         })
         .remainingAccounts([ra(requested, true), ra(BADGES, false), ra(offered, true), ra(BADGES, false)])
@@ -287,7 +310,7 @@ function assert(cond: boolean, msg: string) {
     await retry(() =>
       program.methods
         .createOffer(nonce, { collection: HARMIES, asset: a, amount, currency: { sol: {} } })
-        .accountsPartial({ bidder: B.publicKey, offer, bidderGboy: null, offerGboy: null, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SYS })
+        .accountsPartial({ bidder: B.publicKey, offer, bidderGboy: undefined, offerGboy: undefined, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SYS })
         .signers([B])
         .rpc(), 'create-offer',
     );
@@ -297,7 +320,8 @@ function assert(cond: boolean, msg: string) {
         .acceptOffer()
         .accountsPartial({
           seller: A.publicKey, bidder: B.publicKey, offer, asset: a, collection: HARMIES,
-          offerGboy: null, sellerGboy: null, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS,
+          creator: creatorFor(HARMIES), creatorGboy: undefined,
+          offerGboy: undefined, sellerGboy: undefined, mplCoreProgram: MPL_CORE, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYS,
         })
         .signers([A])
         .rpc(), 'accept-offer',

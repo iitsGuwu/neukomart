@@ -200,8 +200,7 @@ export function ListDialog({ asset, onClose }: { asset: NeukoAsset | null; onClo
       <div className="mt-4 rounded-xl bg-gboy/5 border border-gboy/20 px-3.5 py-2.5 text-xs text-gboy flex items-start gap-2">
         <ShieldCheck size={14} className="mt-0.5 shrink-0" />
         <span>
-          <b>Escrowless</b> — the NFT stays in your wallet (frozen) until it sells. 0% fees, you
-          keep 100% of the sale.
+          <b>Escrowless</b> — the NFT stays in your wallet (frozen) until it sells. 0% marketplace fees (5% creator royalties apply).
         </span>
       </div>
 

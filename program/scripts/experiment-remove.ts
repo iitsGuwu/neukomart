@@ -44,7 +44,7 @@ async function tryStep(label: string, fn: () => Promise<unknown>) {
     addPlugin(umi, { asset: asset.publicKey, collection: collection.publicKey, plugin: { type: 'TransferDelegate', authority: { type: 'Address', address: D.publicKey } } }).sendAndConfirm(umi),
   );
   await tryStep('owner adds FreezeDelegate frozen=true (authority=D)', () =>
-    addPlugin(umi, { asset: asset.publicKey, collection: collection.publicKey, plugin: { type: 'FreezeDelegate', data: { frozen: true }, authority: { type: 'Address', address: D.publicKey } } }).sendAndConfirm(umi),
+    addPlugin(umi, { asset: asset.publicKey, collection: collection.publicKey, plugin: { type: 'FreezeDelegate', frozen: true, authority: { type: 'Address', address: D.publicKey } } }).sendAndConfirm(umi),
   );
 
   console.log('\n-- thaw + remove attempts --');

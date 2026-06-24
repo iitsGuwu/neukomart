@@ -35,7 +35,7 @@ async function probeFreezeLock() {
   const stranger = generateSigner(umi);
   await create(umi, { asset: a, collection, owner: umi.identity.publicKey, name: 'LockProbe', uri: 'https://neuko.test/p.json' }).sendAndConfirm(umi);
   await addPlugin(umi, { asset: a.publicKey, collection: collection.publicKey, plugin: { type: 'TransferDelegate', authority: { type: 'Address', address: D.publicKey } } }).sendAndConfirm(umi);
-  await addPlugin(umi, { asset: a.publicKey, collection: collection.publicKey, plugin: { type: 'FreezeDelegate', data: { frozen: true }, authority: { type: 'Address', address: D.publicKey } } }).sendAndConfirm(umi);
+  await addPlugin(umi, { asset: a.publicKey, collection: collection.publicKey, plugin: { type: 'FreezeDelegate', frozen: true, authority: { type: 'Address', address: D.publicKey } } }).sendAndConfirm(umi);
   console.log('  set up: asset frozen, delegates -> D (owner = us)');
 
   // The owner tries every escape route while the asset is "listed" (frozen):

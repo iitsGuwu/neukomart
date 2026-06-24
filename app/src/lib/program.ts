@@ -193,7 +193,7 @@ export function buildPurchaseGboyIx(params: {
   const buyerGboy = getAssociatedTokenAddressSync(GBOY_MINT, params.buyer);
   const sellerGboy = getAssociatedTokenAddressSync(GBOY_MINT, params.seller);
   const creator = COLLECTIONS[params.collection].creator;
-  const creatorGboy = getAssociatedTokenAddressSync(GBOY_MINT, creator);
+  const creatorGboy = getAssociatedTokenAddressSync(GBOY_MINT, creator, true);
   return new TransactionInstruction({
     programId: PROGRAM_ID,
     keys: [
@@ -418,7 +418,7 @@ export function buildAcceptOfferIx(params: {
   const offerGboy = usesGboy ? getAssociatedTokenAddressSync(GBOY_MINT, offer, true) : PROGRAM_ID;
   const sellerGboy = usesGboy ? getAssociatedTokenAddressSync(GBOY_MINT, params.seller) : PROGRAM_ID;
   const creator = COLLECTIONS[params.collection].creator;
-  const creatorGboy = usesGboy ? getAssociatedTokenAddressSync(GBOY_MINT, creator) : PROGRAM_ID;
+  const creatorGboy = usesGboy ? getAssociatedTokenAddressSync(GBOY_MINT, creator, true) : PROGRAM_ID;
   return new TransactionInstruction({
     programId: PROGRAM_ID,
     keys: [

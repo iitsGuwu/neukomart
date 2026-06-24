@@ -54,7 +54,7 @@ export function MarketCard({
         <Link to={`/asset/${asset.id}`} className="font-semibold text-sm truncate block hover:text-neon transition-colors">
           {asset.name}
         </Link>
-        <div className="mt-2 flex items-end justify-between gap-2 min-h-[2.4rem]">
+        <div className="mt-2 flex flex-wrap items-end justify-between gap-2 min-h-[2.4rem]">
           {listing ? (
             <>
               <div className="min-w-0 flex-1">
