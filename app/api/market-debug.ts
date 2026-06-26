@@ -58,10 +58,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
+  // Replicate /api/market's EXACT path (import _store -> getRedis -> hvals/lrange)
+  // to find where it diverges from the working set/get above.
+  const marketPath: Record<string, unknown> = { step: 'start' };
+  try {
+    marketPath.step = 'import _store';
+    const store = await import('./_store');
+    marketPath.step = 'getRedis';
+    const redis = store.getRedis();
+    marketPath.getRedisReturnedClient = !!redis;
+    if (redis) {
+      marketPath.step = 'hvals/lrange';
+      const [listings, offers, activity] = await Promise.all([
+        redis.hvals(store.KEYS.listings),
+        redis.hvals(store.KEYS.offers),
+        redis.lrange(store.KEYS.activity, 0, 200),
+      ]);
+      marketPath.step = 'done';
+      marketPath.ok = true;
+      marketPath.counts = {
+        listings: (listings as unknown[])?.length ?? null,
+        offers: (offers as unknown[])?.length ?? null,
+        activity: (activity as unknown[])?.length ?? null,
+      };
+    }
+  } catch (e) {
+    marketPath.error = String((e as Error)?.message || e).slice(0, 400);
+    marketPath.errorName = (e as Error)?.name;
+  }
+
   return res.status(200).json({
     note: 'TEMPORARY — delete app/api/market-debug.ts after debugging',
     resolved: { hasUrl: !!url, hasToken: !!token },
     vars,
     connection,
+    marketPath,
   });
 }
