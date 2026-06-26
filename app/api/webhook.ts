@@ -136,9 +136,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // Fail closed: a shared secret is mandatory so nobody can POST forged events.
   const secret = process.env.HELIUS_WEBHOOK_SECRET;
+  if (!secret) {
+    // Distinct from 401 so setup is debuggable: the secret env var is missing,
+    // so every Helius event is rejected and nothing reaches the indexer.
+    return res.status(503).json({ error: 'HELIUS_WEBHOOK_SECRET not configured' });
+  }
   const authHeader = req.headers['authorization'];
   const provided = Array.isArray(authHeader) ? authHeader[0] : authHeader;
-  if (!secret || !provided || !safeEqual(provided, secret)) {
+  if (!provided || !safeEqual(provided, secret)) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
