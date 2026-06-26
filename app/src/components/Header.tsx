@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { BaseWalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { useWallet } from '@solana/wallet-adapter-react';
 import clsx from 'clsx';
 import { Menu, X, ShoppingCart, Sun, Moon } from 'lucide-react';
@@ -18,6 +18,19 @@ const NAV = [
   { to: '/activity', label: 'Activity' },
   { to: '/portfolio', label: 'Portfolio' },
 ];
+
+// Same as the default WalletMultiButton labels, but show "Connect" before a
+// wallet is selected (instead of "Select Wallet"); the connected address still
+// shows after connecting.
+const WALLET_LABELS = {
+  'change-wallet': 'Change wallet',
+  connecting: 'Connecting…',
+  'copy-address': 'Copy address',
+  copied: 'Copied',
+  disconnect: 'Disconnect',
+  'has-wallet': 'Connect',
+  'no-wallet': 'Connect',
+} as const;
 
 function BalancePill() {
   const { connected } = useWallet();
@@ -97,7 +110,7 @@ export function Header() {
                 )}
               </IconBtn>
 
-              <WalletMultiButton />
+              <BaseWalletMultiButton labels={WALLET_LABELS} />
               <button className="lg:hidden btn-ghost !p-2 !rounded-lg" onClick={() => setOpen((o) => !o)}>
                 {open ? <X size={18} /> : <Menu size={18} />}
               </button>

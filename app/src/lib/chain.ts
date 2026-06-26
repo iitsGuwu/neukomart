@@ -63,14 +63,34 @@ interface DasAsset {
 }
 
 async function dasCall<T>(method: string, params: unknown): Promise<T> {
-  const res = await fetch(RPC_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 'neuko', method, params }),
-  });
-  const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'DAS error');
-  return json.result as T;
+  // Retry transient failures (rate limits / 5xx / network blips). Without this a
+  // single hiccup on the large getAssetsByGroup calls drops the whole ecosystem
+  // load back to the bundled fallback set — which then can't be listed/bought
+  // on-chain (fake ids) and won't join live Magic Eden listings.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(RPC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 'neuko', method, params }),
+      });
+    } catch (e) {
+      lastErr = e; // network error — retry
+      await new Promise((r) => setTimeout(r, 400 * 2 ** attempt));
+      continue;
+    }
+    if (res.status === 429 || res.status >= 500) {
+      lastErr = new Error(`DAS HTTP ${res.status}`);
+      await new Promise((r) => setTimeout(r, 400 * 2 ** attempt + Math.random() * 200));
+      continue;
+    }
+    const json = await res.json();
+    if (json.error) throw new Error(json.error.message || 'DAS error'); // non-transient
+    return json.result as T;
+  }
+  throw lastErr ?? new Error('DAS unreachable');
 }
 
 function normalize(a: DasAsset): NeukoAsset | null {

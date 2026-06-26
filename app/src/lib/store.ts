@@ -8,7 +8,7 @@ import type {
 } from './types';
 
 /** Increment when the shape of MarketState changes to auto-clear stale caches. */
-const STATE_VERSION = 8;
+const STATE_VERSION = 9;
 
 interface MarketState {
   /** Schema version — used to detect stale localStorage caches. */
@@ -39,22 +39,26 @@ function empty(): MarketState {
 }
 
 function load(): MarketState {
+  // Only user-specific prefs (favorites) persist. Live market data —
+  // listings / activity / offers — is ALWAYS re-fetched fresh on each load via
+  // useSeedMarket, so a one-time stale or empty snapshot can never stick
+  // (the previous "seed once and persist" behaviour left users with 0
+  // listings whenever the first fetch raced or hiccupped).
+  const base = empty();
   if (typeof localStorage !== 'undefined') {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       try {
-        const parsed = JSON.parse(raw) as MarketState;
-        if (parsed._v !== STATE_VERSION) {
-          localStorage.removeItem(STORAGE_KEY);
-          return empty();
+        const parsed = JSON.parse(raw) as Partial<MarketState>;
+        if (parsed && parsed._v === STATE_VERSION && parsed.diamondHands) {
+          base.diamondHands = parsed.diamondHands;
         }
-        return parsed;
       } catch {
         /* ignore malformed JSON */
       }
     }
   }
-  return empty();
+  return base;
 }
 
 let state: MarketState = load();
@@ -63,7 +67,11 @@ const listeners = new Set<() => void>();
 function emit() {
   if (typeof localStorage !== 'undefined') {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      // Persist ONLY user prefs — never the live-derived market snapshot.
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ _v: STATE_VERSION, diamondHands: state.diamondHands }),
+      );
     } catch {
       /* quota / serialization — non-fatal */
     }
