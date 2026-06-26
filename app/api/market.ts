@@ -1,15 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { getRedis, KEYS } from './_store';
 
 /** Combined read endpoint for the indexer: listings + offers + recent activity.
  *
- * Everything (including the store import + client construction) runs inside one
- * try/catch and dynamic import, so a missing/misconfigured/unreachable Redis can
- * never crash the function (FUNCTION_INVOCATION_FAILED). On any failure it
- * degrades to `configured:false` so the client falls back to live Magic Eden
- * data cleanly. */
+ * `_store` is imported statically (a dynamic `import('./_store')` does NOT
+ * resolve in Vercel's bundled ESM function runtime — it threw "Cannot find
+ * module" and made this endpoint always report configured:false). The Redis
+ * client construction + calls are wrapped in try/catch so a missing or
+ * unreachable store degrades to `configured:false` instead of crashing
+ * (FUNCTION_INVOCATION_FAILED), letting the client fall back to live Magic Eden
+ * data. */
 export default async function handler(_req: VercelRequest, res: VercelResponse) {
   try {
-    const { getRedis, KEYS } = await import('./_store');
     const redis = getRedis();
     if (!redis) {
       return res.status(200).json({ configured: false, listings: [], offers: [], activity: [] });
