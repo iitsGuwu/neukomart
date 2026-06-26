@@ -1,21 +1,28 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getRedis, KEYS } from './_store';
 
 /** Combined read endpoint for the indexer: listings + offers + recent activity.
  *
- * `_store` is imported statically (a dynamic `import('./_store')` does NOT
- * resolve in Vercel's bundled ESM function runtime — it threw "Cannot find
- * module" and made this endpoint always report configured:false). The Redis
- * client construction + calls are wrapped in try/catch so a missing or
- * unreachable store degrades to `configured:false` instead of crashing
- * (FUNCTION_INVOCATION_FAILED), letting the client fall back to live Magic Eden
- * data. */
+ * The Redis setup is INLINED here (no `./_store` import): an underscore-prefixed
+ * shared module in `api/` does not resolve in Vercel's bundled function runtime
+ * — importing it (static OR dynamic) crashes with "Cannot find module
+ * /var/task/app/api/_store" / FUNCTION_INVOCATION_FAILED, which silently
+ * disabled this endpoint (always configured:false) regardless of Upstash.
+ * Importing `@upstash/redis` directly works. Keys mirror `_store.ts`. */
+const KEYS = {
+  listings: 'neuko:listings',
+  offers: 'neuko:offers',
+  activity: 'neuko:activity',
+} as const;
+
 export default async function handler(_req: VercelRequest, res: VercelResponse) {
+  const empty = { configured: false, listings: [], offers: [], activity: [] };
   try {
-    const redis = getRedis();
-    if (!redis) {
-      return res.status(200).json({ configured: false, listings: [], offers: [], activity: [] });
-    }
+    const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+    const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+    if (!url || !token) return res.status(200).json(empty);
+
+    const { Redis } = await import('@upstash/redis');
+    const redis = new Redis({ url, token });
     const [listings, offers, activity] = await Promise.all([
       redis.hvals(KEYS.listings),
       redis.hvals(KEYS.offers),
@@ -30,6 +37,6 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
     });
   } catch (err) {
     console.error('market read failed', err);
-    return res.status(200).json({ configured: false, listings: [], offers: [], activity: [] });
+    return res.status(200).json(empty);
   }
 }
