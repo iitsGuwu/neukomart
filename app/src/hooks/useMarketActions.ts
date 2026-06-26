@@ -222,25 +222,95 @@ export function useMarketActions() {
   );
 
   const createSwap = useCallback(
-    async (give: SwapSide, want: SwapSide, taker?: string, counteredFrom?: string) => {
+    async (give: SwapSide, want: SwapSide, taker?: string, _counteredFrom?: string) => {
       if (!guard()) return;
-      toast.error('Swaps are currently disabled');
+      if (!live) {
+        toast.error('Swaps need the NEUKO program — connect a wallet on mainnet');
+        return;
+      }
+      try {
+        const offered = give.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
+        const requested = want.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
+        const solOffered = give.sol > 0 ? prog.solToLamports(give.sol) : 0n;
+        const gboyOffered = give.gboy > 0 ? prog.gboyToBase(give.gboy) : 0n;
+        const solRequested = want.sol > 0 ? prog.solToLamports(want.sol) : 0n;
+        const gboyRequested = want.gboy > 0 ? prog.gboyToBase(want.gboy) : 0n;
+
+        if (offered.length === 0 && solOffered === 0n && gboyOffered === 0n) {
+          toast.error('Offer at least one asset, SOL or $GBOY');
+          return;
+        }
+        if (requested.length === 0 && solRequested === 0n && gboyRequested === 0n) {
+          toast.error('Request at least one asset, SOL or $GBOY');
+          return;
+        }
+        if (offered.length > 8 || requested.length > 8) {
+          toast.error('A swap can hold at most 8 assets per side');
+          return;
+        }
+        let takerPk: PublicKey | null = null;
+        if (taker) {
+          try {
+            takerPk = new PublicKey(taker);
+          } catch {
+            toast.error('Invalid counterparty address');
+            return;
+          }
+        }
+
+        const nonce = BigInt(Date.now());
+        const [swap] = prog.swapPda(wallet.publicKey!, nonce);
+        const ixs = [];
+        if (gboyOffered > 0n) {
+          const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
+            await import('@solana/spl-token');
+          const swapGboy = getAssociatedTokenAddressSync(GBOY_MINT, swap, true);
+          // The escrow ATA must exist before create_swap transfers $GBOY into it.
+          ixs.push(
+            createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, swapGboy, swap, GBOY_MINT),
+          );
+        }
+        ixs.push(
+          prog.buildCreateSwapIx({
+            maker: wallet.publicKey!,
+            nonce,
+            offered,
+            requested,
+            solOffered,
+            gboyOffered,
+            solRequested,
+            gboyRequested,
+            taker: takerPk,
+          }),
+        );
+        await toast.promise(sendSmart(wallet, ixs), {
+          loading: 'Creating swap offer on-chain…',
+          success: 'Swap offer created — your assets are escrowed!',
+          error: (e) => `Failed: ${e.message ?? e}`,
+        });
+      } catch {
+        /* handled by toast */
+      }
     },
-    [guard],
+    [guard, live, wallet],
   );
 
+  // Accepting / cancelling an existing swap needs its on-chain nonce + escrowed
+  // asset list, which only the swap indexer can supply (see lib/indexer.ts). Until
+  // that's wired, open-swap browsing is empty so these are not reachable from the
+  // UI; the guards keep them safe if called directly.
   const acceptSwap = useCallback(
-    async (swapId: string) => {
+    async (_swapId: string) => {
       if (!guard()) return;
-      toast.error('Swaps are currently disabled');
+      toast.error('Open-swap acceptance needs the on-chain indexer (coming soon)');
     },
     [guard],
   );
 
   const cancelSwap = useCallback(
-    async (swapId: string) => {
+    async (_swapId: string) => {
       if (!guard()) return;
-      toast.error('Swaps are currently disabled');
+      toast.error('Swap management needs the on-chain indexer (coming soon)');
     },
     [guard],
   );
