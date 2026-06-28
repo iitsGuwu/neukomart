@@ -201,6 +201,15 @@ export function useMarketActions() {
             toast.error('Listing not found');
             return;
           }
+          // External (Magic Eden / Tensor) listings have no NEUKO listing PDA —
+          // cancelling them on-chain would fail with AccountNotFound. They must
+          // be delisted on the originating marketplace.
+          if (listing.origin === 'magiceden' || listing.origin === 'tensor') {
+            const url = originUrl(listing.origin, listing.asset.id);
+            toast(`This is a ${listing.origin === 'tensor' ? 'Tensor' : 'Magic Eden'} listing — manage it on that marketplace.`, { icon: 'ℹ️' });
+            if (url) window.open(url, '_blank', 'noopener,noreferrer');
+            return;
+          }
           const ix = prog.buildCancelListingIx({
             seller: wallet.publicKey!,
             asset: new PublicKey(assetId),

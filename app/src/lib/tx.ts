@@ -128,6 +128,15 @@ export async function sendSmart(
 ): Promise<string> {
   const connection = getConnection();
   const payer = wallet.publicKey!;
+
+  // A wallet with 0 SOL has no on-chain account, so it can't pay fees/rent and
+  // simulation fails with a cryptic "AccountNotFound" (before any signing).
+  // Catch it up front with a clear, actionable message.
+  const balance = await connection.getBalance(payer, 'confirmed').catch(() => null);
+  if (balance === 0) {
+    throw new Error('Your wallet has no SOL — add some SOL to cover the network fee and account rent (~0.01 SOL), then try again.');
+  }
+
   const keys = uniqueKeys(ixs);
   const priority = await getPriorityFee(connection, keys);
   const luts = await loadLookupTables(connection);
@@ -141,7 +150,13 @@ export async function sendSmart(
 
   let unitLimit = 400_000;
   if (sim) {
-    if (sim.err) throw new Error(`Transaction would fail — ${simErrorMessage(sim.err, sim.logs)}`);
+    if (sim.err) {
+      const msg = simErrorMessage(sim.err, sim.logs);
+      if (/AccountNotFound/i.test(msg)) {
+        throw new Error('Transaction would fail — a required account is missing. Make sure your wallet has SOL for fees, and that the item is a NEUKO-native listing (external Magic Eden / Tensor listings are managed on those marketplaces).');
+      }
+      throw new Error(`Transaction would fail — ${msg}`);
+    }
     unitLimit = unitLimitFor(sim.units);
   }
 
