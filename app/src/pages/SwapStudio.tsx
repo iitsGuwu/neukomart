@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Plus, X, ArrowRightLeft, Repeat2, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
@@ -46,7 +46,7 @@ export function SwapStudio() {
       toast.error('Add something to both sides of the trade');
       return;
     }
-    await createSwap(give, want, taker.trim() || undefined, counterId ?? undefined);
+    await createSwap(give, want, taker.trim() || undefined, outgoingOffers);
     resetBuilder();
   };
 
@@ -307,14 +307,31 @@ function AmountInput({
   value: number;
   onChange: (v: number) => void;
 }) {
+  // Hold the raw text locally so intermediate decimal states ("0", "0.", "0.00")
+  // survive — storing only the parsed number reset the field on every keystroke,
+  // which made fractional amounts like 0.0001 impossible to type.
+  const [text, setText] = useState(value ? String(value) : '');
+  useEffect(() => {
+    // Re-sync only on genuine external changes (counter prefill / reset), never
+    // while typing — when typing, parseFloat(text) already equals value.
+    if ((parseFloat(text) || 0) !== value) setText(value ? String(value) : '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
   return (
     <div className="relative">
       <span className="absolute left-3 top-1/2 -translate-y-1/2">
         <CurrencyIcon currency={currency} size={15} />
       </span>
       <input
-        value={value || ''}
-        onChange={(e) => onChange(parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
+        value={text}
+        onChange={(e) => {
+          let raw = e.target.value.replace(/[^0-9.]/g, '');
+          const dot = raw.indexOf('.');
+          if (dot !== -1) raw = raw.slice(0, dot + 1) + raw.slice(dot + 1).replace(/\./g, '');
+          setText(raw);
+          onChange(parseFloat(raw) || 0);
+        }}
         inputMode="decimal"
         placeholder="0"
         className="input !pl-9 !py-2 text-sm tabular-nums"

@@ -291,16 +291,26 @@ export function useMarketActions() {
   );
 
   const createSwap = useCallback(
-    async (give: SwapSide, want: SwapSide, taker?: string, _counteredFrom?: string) => {
+    async (give: SwapSide, want: SwapSide, taker?: string, mySwaps: OnChainSwap[] = []) => {
       if (!guard()) return;
       if (!live) {
         toast.error('Swaps need the NEUKO program — connect a wallet on mainnet');
         return;
       }
       try {
+        // Re-offering an asset that's escrowed in one of my OWN open swaps means
+        // this is a counter (or a replacement) of that swap. create_swap can't
+        // escrow an asset I no longer hold, so cancel those swaps first, in the
+        // same tx — this both unlocks the asset AND replaces my previous offer so
+        // a back-and-forth negotiation never piles up duplicate offers.
+        const offeringIds = new Set(give.assets.map((a) => a.id));
+        const conflicts = mySwaps.filter((s) => s.give.assets.some((a) => offeringIds.has(a.id)));
+        const escrowedByMe = new Set(conflicts.flatMap((s) => s.give.assets.map((a) => a.id)));
+
         // A listed NFT is frozen with marketplace delegates — escrowing it into
-        // the swap would fail. Stop early with an actionable message.
-        const frozenGive = give.assets.find((a) => a.frozen);
+        // the swap would fail. (An asset I'm re-offering from my own swap isn't
+        // frozen, just escrowed — it's released by the cancels above.)
+        const frozenGive = give.assets.find((a) => a.frozen && !escrowedByMe.has(a.id));
         if (frozenGive) {
           toast.error(`${frozenGive.name} is currently listed — delist it before swapping it.`);
           return;
@@ -334,12 +344,24 @@ export function useMarketActions() {
           }
         }
 
+        const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
+          await import('@solana/spl-token');
         const nonce = BigInt(Date.now());
         const [swap] = prog.swapPda(wallet.publicKey!, nonce);
         const ixs = [];
+
+        // Cancel the prior offer(s) this one replaces, releasing their escrow.
+        for (const cs of conflicts) {
+          const csOffered = cs.give.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
+          const csGboy = cs.give.gboy > 0;
+          if (csGboy) {
+            const myGboy = getAssociatedTokenAddressSync(GBOY_MINT, wallet.publicKey!);
+            ixs.push(createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, myGboy, wallet.publicKey!, GBOY_MINT));
+          }
+          ixs.push(prog.buildCancelSwapIx({ maker: wallet.publicKey!, nonce: BigInt(cs.nonce), offered: csOffered, usesGboy: csGboy }));
+        }
+
         if (gboyOffered > 0n) {
-          const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
-            await import('@solana/spl-token');
           const swapGboy = getAssociatedTokenAddressSync(GBOY_MINT, swap, true);
           // The escrow ATA must exist before create_swap transfers $GBOY into it.
           ixs.push(
@@ -360,8 +382,8 @@ export function useMarketActions() {
           }),
         );
         await toast.promise(sendSmart(wallet, ixs), {
-          loading: 'Creating swap offer on-chain…',
-          success: 'Swap offer created — your assets are escrowed!',
+          loading: conflicts.length ? 'Submitting counter — replacing your previous offer…' : 'Creating swap offer on-chain…',
+          success: conflicts.length ? 'Counter sent — previous offer replaced.' : 'Swap offer created — your assets are escrowed!',
           error: (e) => `Failed: ${e.message ?? e}`,
         });
         refreshSwaps(); // show it under "My offers"
