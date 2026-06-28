@@ -8,10 +8,12 @@ import {
   isProgramDeployed,
   dasAssetsByOwner,
   dasEcosystemFull,
+  getConnection,
 } from '../lib/chain';
 import { seedAll, isSeeded } from '../lib/store';
 import { loadIndexedMarket } from '../lib/indexer';
 import { loadLiveMarket } from '../lib/live-market';
+import { fetchSwaps } from '../lib/swaps';
 import { ALL_ASSETS } from '../lib/seed';
 import type { NeukoAsset, Listing } from '../lib/types';
 
@@ -80,6 +82,25 @@ export function useSeedMarket() {
       cancelled = true;
     };
   }, [isLoading, assets]);
+}
+
+/** Live swap offers read straight from the chain (getProgramAccounts). Polls so
+ *  newly created / accepted / cancelled swaps appear without a reload. */
+export function useSwaps() {
+  const { assets } = useEcosystemAssets();
+  return useQuery({
+    queryKey: ['swaps'],
+    enabled: assets.length > 0,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const assetMap = new Map(assets.map((a) => [a.id, a]));
+      try {
+        return await fetchSwaps(getConnection(), assetMap);
+      } catch {
+        return [];
+      }
+    },
+  });
 }
 
 export function useBalances() {

@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { PublicKey } from '@solana/web3.js';
 import toast from 'react-hot-toast';
 import { GBOY_MINT, GBOY_DECIMALS, COLLECTIONS, type CollectionKey } from '../lib/constants';
@@ -14,6 +15,7 @@ import { originUrl } from '../components/ui';
 import { useProgramStatus } from './useWalletData';
 import * as store from '../lib/store';
 import * as prog from '../lib/program';
+import type { OnChainSwap } from '../lib/swaps';
 import type { Listing, NeukoAsset, SwapSide, Currency } from '../lib/types';
 
 /**
@@ -42,9 +44,14 @@ export function useCanTransact() {
 
 export function useMarketActions() {
   const wallet = useWallet();
+  const queryClient = useQueryClient();
   const { live } = useCanTransact();
   const owner = wallet.publicKey?.toBase58();
   const market = store.useMarketState();
+  const refreshSwaps = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['swaps'] }),
+    [queryClient],
+  );
 
   const guard = useCallback(() => {
     if (!owner) {
@@ -309,31 +316,106 @@ export function useMarketActions() {
           success: 'Swap offer created — your assets are escrowed!',
           error: (e) => `Failed: ${e.message ?? e}`,
         });
+        refreshSwaps(); // show it under "My offers"
       } catch {
         /* handled by toast */
       }
     },
-    [guard, live, wallet],
+    [guard, live, wallet, refreshSwaps],
   );
 
-  // Accepting / cancelling an existing swap needs its on-chain nonce + escrowed
-  // asset list, which only the swap indexer can supply (see lib/indexer.ts). Until
-  // that's wired, open-swap browsing is empty so these are not reachable from the
-  // UI; the guards keep them safe if called directly.
+  // Swaps are read straight from the chain (see lib/swaps.ts), so accept/cancel
+  // get the full swap (nonce + escrowed asset list) and rebuild the ix directly.
   const acceptSwap = useCallback(
-    async (_swapId: string) => {
+    async (swap: OnChainSwap) => {
       if (!guard()) return;
-      toast.error('Open-swap acceptance needs the on-chain indexer (coming soon)');
+      if (!live) {
+        toast.error('Swaps need the NEUKO program — connect a wallet on mainnet');
+        return;
+      }
+      if (swap.taker && swap.taker !== owner) {
+        toast.error('This swap is locked to a specific counterparty.');
+        return;
+      }
+      try {
+        const maker = new PublicKey(swap.maker);
+        const nonce = BigInt(swap.nonce);
+        const offered = swap.give.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
+        const requested = swap.want.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
+        const usesGboy = swap.give.gboy > 0 || swap.want.gboy > 0;
+
+        const ixs = [];
+        if (usesGboy) {
+          const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
+            await import('@solana/spl-token');
+          // Taker may receive maker's escrowed $GBOY, and/or pay $GBOY to the maker.
+          const takerGboy = getAssociatedTokenAddressSync(GBOY_MINT, wallet.publicKey!);
+          const makerGboy = getAssociatedTokenAddressSync(GBOY_MINT, maker);
+          ixs.push(
+            createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, takerGboy, wallet.publicKey!, GBOY_MINT),
+            createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, makerGboy, maker, GBOY_MINT),
+          );
+        }
+        ixs.push(
+          prog.buildAcceptSwapIx({
+            taker: wallet.publicKey!,
+            maker,
+            nonce,
+            requested,
+            offered,
+            usesGboy,
+          }),
+        );
+        await toast.promise(sendSmart(wallet, ixs), {
+          loading: 'Accepting swap on-chain…',
+          success: 'Swap accepted — assets exchanged!',
+          error: (e) => `Failed: ${e.message ?? e}`,
+        });
+        refreshSwaps();
+      } catch {
+        /* handled by toast */
+      }
     },
-    [guard],
+    [guard, live, wallet, owner, refreshSwaps],
   );
 
   const cancelSwap = useCallback(
-    async (_swapId: string) => {
+    async (swap: OnChainSwap) => {
       if (!guard()) return;
-      toast.error('Swap management needs the on-chain indexer (coming soon)');
+      if (!live) {
+        toast.error('Swaps need the NEUKO program — connect a wallet on mainnet');
+        return;
+      }
+      if (swap.maker !== owner) {
+        toast.error('Only the swap maker can cancel it.');
+        return;
+      }
+      try {
+        const nonce = BigInt(swap.nonce);
+        const offered = swap.give.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
+        const usesGboy = swap.give.gboy > 0; // only the maker's escrowed $GBOY is returned
+
+        const ixs = [];
+        if (usesGboy) {
+          const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
+            await import('@solana/spl-token');
+          const makerGboy = getAssociatedTokenAddressSync(GBOY_MINT, wallet.publicKey!);
+          ixs.push(
+            createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, makerGboy, wallet.publicKey!, GBOY_MINT),
+          );
+        }
+        ixs.push(prog.buildCancelSwapIx({ maker: wallet.publicKey!, nonce, offered, usesGboy }));
+        await toast.promise(sendSmart(wallet, ixs), {
+          loading: 'Cancelling swap on-chain…',
+          success: 'Swap cancelled — your assets are back.',
+          error: (e) => `Failed: ${e.message ?? e}`,
+        });
+        refreshSwaps();
+      } catch {
+        /* handled by toast */
+      }
     },
-    [guard],
+    [guard, live, wallet, owner, refreshSwaps],
   );
 
   const makeOffer = useCallback(

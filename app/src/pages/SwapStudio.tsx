@@ -6,10 +6,10 @@ import toast from 'react-hot-toast';
 import { Modal, AssetImage, CurrencyIcon, SectionTitle, EcoBadge } from '../components/ui';
 import { SelectableAssetCard } from '../components/NFTCard';
 import { OfferCard } from '../components/OfferCard';
-import { useMyAssets, useEcosystemAssets } from '../hooks/useWalletData';
+import { useMyAssets, useEcosystemAssets, useSwaps } from '../hooks/useWalletData';
 import { useMarketActions } from '../hooks/useMarketActions';
-import { useMarketState } from '../lib/store';
-import type { NeukoAsset, SwapSide, SwapOffer } from '../lib/types';
+import type { OnChainSwap } from '../lib/swaps';
+import type { NeukoAsset, SwapSide } from '../lib/types';
 
 const empty: SwapSide = { assets: [], sol: 0, gboy: 0 };
 
@@ -17,7 +17,7 @@ export function SwapStudio() {
   const { publicKey } = useWallet();
   const { assets: mine } = useMyAssets();
   const { assets: ecosystem } = useEcosystemAssets();
-  const market = useMarketState();
+  const { data: swaps = [] } = useSwaps();
   const { createSwap, acceptSwap, cancelSwap } = useMarketActions();
 
   const [give, setGive] = useState<SwapSide>(empty);
@@ -51,7 +51,7 @@ export function SwapStudio() {
   };
 
   // Prefill the builder with the inverse of an offer to negotiate it.
-  const startCounter = (offer: SwapOffer) => {
+  const startCounter = (offer: OnChainSwap) => {
     setGive({ assets: [...offer.want.assets], sol: offer.want.sol, gboy: offer.want.gboy });
     setWant({ assets: [...offer.give.assets], sol: offer.give.sol, gboy: offer.give.gboy });
     setTaker(offer.maker);
@@ -60,8 +60,11 @@ export function SwapStudio() {
     toast(`Countering — adjust the terms and submit`, { icon: '↔️' });
   };
 
-  const openOffers = market.swaps.filter((s) => s.status === 'open' && s.maker !== me);
-  const myOffers = market.swaps.filter((s) => s.maker === me);
+  // Hide private swaps locked to someone else; always show your own.
+  const openOffers = swaps.filter(
+    (s) => s.status === 'open' && s.maker !== me && (!s.taker || s.taker === me),
+  );
+  const myOffers = swaps.filter((s) => s.maker === me);
 
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10">
@@ -165,7 +168,7 @@ export function SwapStudio() {
                 <OfferCard
                   key={o.id}
                   offer={o}
-                  onAccept={() => acceptSwap(o.id)}
+                  onAccept={() => acceptSwap(o)}
                   onCounter={() => startCounter(o)}
                 />
               ))}
@@ -182,7 +185,7 @@ export function SwapStudio() {
                   key={o.id}
                   offer={o}
                   mine
-                  onCancel={o.status === 'open' ? () => cancelSwap(o.id) : undefined}
+                  onCancel={o.status === 'open' ? () => cancelSwap(o) : undefined}
                 />
               ))}
             </div>
