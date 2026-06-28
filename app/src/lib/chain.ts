@@ -53,7 +53,7 @@ export async function isProgramDeployed(): Promise<boolean> {
 
 interface DasAsset {
   id: string;
-  ownership?: { owner?: string };
+  ownership?: { owner?: string; frozen?: boolean };
   grouping?: { group_key: string; group_value: string }[];
   content?: {
     metadata?: { name?: string; attributes?: Attribute[] };
@@ -111,6 +111,7 @@ function normalize(a: DasAsset): NeukoAsset | null {
     image,
     number: num,
     owner: a.ownership?.owner,
+    frozen: a.ownership?.frozen,
     attributes: a.content?.metadata?.attributes ?? [],
     generative: false,
   };

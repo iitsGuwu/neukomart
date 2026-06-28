@@ -86,7 +86,7 @@ function simErrorMessage(err: unknown, logs: string[]): string {
   // A custom error from a CPI (e.g. Metaplex Core) with no Anchor message.
   if (code != null) {
     return new RegExp(`${MPL_CORE}[\\s\\S]*?custom program error`, 'i').test(logText)
-      ? `The NFT program rejected this (code 0x${code.toString(16)}) — the asset may already be listed or carry leftover delegates.`
+      ? `This NFT is already listed (it carries marketplace delegates) — likely on Magic Eden or Tensor. Delist it there first, then list on NEUKO.`
       : `On-chain program error (code 0x${code.toString(16)}).`;
   }
 

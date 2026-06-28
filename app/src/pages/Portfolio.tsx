@@ -4,7 +4,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import clsx from 'clsx';
 import { Tag, Wallet, Sparkles, Gavel, Gem } from 'lucide-react';
-import { AssetImage, CollectionPill, PriceTag, CurrencyIcon, SectionTitle, EcoBadge, Modal } from '../components/ui';
+import { AssetImage, CollectionPill, PriceTag, CurrencyIcon, SectionTitle, EcoBadge, Modal, OriginBadge, originUrl } from '../components/ui';
 import { ListDialog } from '../components/dialogs';
 import { useBalances, useMyAssets } from '../hooks/useWalletData';
 import { useMarketActions } from '../hooks/useMarketActions';
@@ -22,11 +22,29 @@ export function Portfolio() {
   const [dhAssetToToggle, setDhAssetToToggle] = useState<string | null>(null);
 
   const me = publicKey?.toBase58();
-  const myListings = market.listings.filter((l) => l.seller === me);
-  const listedIds = new Set(myListings.map((l) => l.asset.id));
-
   const myAssetIds = new Set(assets.map((a) => a.id));
   const myCollections = new Set(assets.map((a) => a.collection));
+
+  // A listing is "mine" if I'm the seller OR it's on an asset I hold — the
+  // latter covers escrowless Magic Eden / Tensor listings (the NFT stays in the
+  // wallet) whose seller field may not exactly match the connected key.
+  const listingByAsset = new Map(market.listings.map((l) => [l.asset.id, l]));
+  const myListings = market.listings.filter((l) => l.seller === me || myAssetIds.has(l.asset.id));
+  const listedIds = new Set(myListings.map((l) => l.asset.id));
+  const isNeuko = (origin?: string) => !origin || origin === 'neukomart';
+
+  /** External listing origin for an owned asset, or null. A frozen asset with no
+   *  known listing is still locked elsewhere — default the link to Magic Eden. */
+  const externalFor = (a: NeukoAsset): 'magiceden' | 'tensor' | null => {
+    const l = listingByAsset.get(a.id);
+    if (l && (l.origin === 'magiceden' || l.origin === 'tensor')) return l.origin;
+    if (!l && a.frozen) return 'magiceden';
+    return null;
+  };
+  const delistElsewhere = (a: NeukoAsset, origin: 'magiceden' | 'tensor') => {
+    const url = originUrl(origin, a.id);
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  };
   const madeOffers = market.offers.filter((o) => o.status === 'open' && o.bidder === me);
   // Offers I can fill: a direct bid on an asset I hold, or a floor bid on a collection I hold.
   const receivedOffers = market.offers.filter(
@@ -88,7 +106,10 @@ export function Portfolio() {
                   <AssetImage asset={l.asset} rounded="rounded-none" />
                 </Link>
                 <div className="p-3">
-                  <div className="text-sm font-semibold truncate">{l.asset.name}</div>
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="text-sm font-semibold truncate">{l.asset.name}</div>
+                    {!isNeuko(l.origin) && <OriginBadge origin={l.origin!} compact />}
+                  </div>
                   <div className="mt-1.5 flex items-center justify-between">
                     <PriceTag amount={l.price} currency={l.currency} size="sm" />
                     <button onClick={() => cancelList(l.asset.id)} className="text-xs text-flare hover:underline">
@@ -186,6 +207,8 @@ export function Portfolio() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {assets.map((a) => {
             const isDh = !!market.diamondHands?.[a.id];
+            const ext = externalFor(a);
+            const listedHere = listedIds.has(a.id) && isNeuko(listingByAsset.get(a.id)?.origin);
             return (
               <div key={a.id} className="group panel overflow-hidden card-hover">
                 <Link to={`/asset/${a.id}`} className="block relative aspect-square overflow-hidden">
@@ -202,10 +225,18 @@ export function Portfolio() {
                 <div className="p-3">
                   <div className="text-sm font-semibold truncate">{a.name}</div>
                   <div className="mt-2 flex gap-1.5">
-                    {listedIds.has(a.id) ? (
+                    {listedHere ? (
                       <div className="flex-1 flex justify-center items-center">
                         <EcoBadge tone="gboy">Listed</EcoBadge>
                       </div>
+                    ) : ext ? (
+                      <button
+                        onClick={() => delistElsewhere(a, ext)}
+                        title={`This NFT is listed on ${ext === 'tensor' ? 'Tensor' : 'Magic Eden'} — delist it there`}
+                        className="btn-ghost flex-1 !py-1.5 text-xs text-flare"
+                      >
+                        <Tag size={13} /> Delist on {ext === 'tensor' ? 'Tensor' : 'ME'}
+                      </button>
                     ) : (
                       <button onClick={() => setListing(a)} className="btn-ghost flex-1 !py-1.5 text-xs">
                         <Tag size={13} /> List

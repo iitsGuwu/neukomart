@@ -10,7 +10,7 @@ import {
   dasEcosystemFull,
   getConnection,
 } from '../lib/chain';
-import { seedAll, isSeeded } from '../lib/store';
+import { seedAll, reseedAll, isSeeded } from '../lib/store';
 import { loadIndexedMarket } from '../lib/indexer';
 import { loadLiveMarket } from '../lib/live-market';
 import { fetchSwaps } from '../lib/swaps';
@@ -44,26 +44,31 @@ export function useEcosystemAssets() {
   };
 }
 
-/** Seeds the market exactly once, app-wide, from ALL live sources merged:
- *  the NEUKO on-chain indexer (`/api/market`) plus Magic Eden / Tensor
- *  aggregation. NEUKO-native listings take priority per asset (0% fee, native
- *  settlement). Waits for the ecosystem query to settle to avoid placeholders. */
+/** Seeds the market app-wide from ALL live sources merged: the NEUKO on-chain
+ *  indexer (`/api/market`) plus Magic Eden / Tensor aggregation. NEUKO-native
+ *  listings take priority per asset (0% fee, native settlement). Re-fetches on a
+ *  60s interval and on window focus so new listings / sales / delists appear
+ *  without a reload — optimistic in-flight actions are preserved (see store). */
 export function useSeedMarket() {
   const { assets, isLoading } = useEcosystemAssets();
   useEffect(() => {
-    if (isLoading || assets.length === 0 || isSeeded()) return;
+    if (isLoading || assets.length === 0) return;
     let cancelled = false;
-    (async () => {
-      const assetMap = new Map(assets.map((a) => [a.id, a]));
+    const assetMap = new Map(assets.map((a) => [a.id, a]));
+
+    const refresh = async () => {
       // Load both sources in parallel — neither blocks the other.
       const [idx, live] = await Promise.all([
         loadIndexedMarket(assetMap),
         loadLiveMarket(assetMap),
       ]);
-      if (cancelled || isSeeded()) return;
+      if (cancelled) return;
+      // Both sources unreachable on a refresh → keep the last good market rather
+      // than blanking the grid on a transient network blip.
+      if (isSeeded() && idx === null && live === null) return;
 
-      // Merge listings keyed by asset: seed ME/Tensor first, then overlay
-      // NEUKO listings so a native listing wins over an external one.
+      // Merge listings keyed by asset: ME/Tensor first, then overlay NEUKO
+      // listings so a native listing wins over an external one.
       const byAsset = new Map<string, Listing>();
       for (const l of live?.listings ?? []) byAsset.set(l.asset.id, l);
       for (const l of idx?.listings ?? []) byAsset.set(l.asset.id, l);
@@ -72,14 +77,28 @@ export function useSeedMarket() {
         .sort((a, b) => b.time - a.time)
         .slice(0, 200);
 
-      seedAll({
+      const payload = {
         listings: [...byAsset.values()],
         offers: idx?.offers ?? [], // offers are NEUKO-native only
         activity,
-      });
-    })();
+      };
+      if (isSeeded()) reseedAll(payload);
+      else seedAll(payload);
+    };
+
+    refresh();
+    const interval = setInterval(refresh, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+
     return () => {
       cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
     };
   }, [isLoading, assets]);
 }

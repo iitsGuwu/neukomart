@@ -97,6 +97,41 @@ export function isSeeded(): boolean {
   return state.seeded;
 }
 
+// ── Optimistic overrides ────────────────────────────────────────────────────
+// After an on-chain action we mutate the store immediately (addListing etc.) so
+// the UI updates without a reload. The indexer confirms on the next refresh, but
+// it lags (webhook delivery), so a refresh that arrived before the indexer
+// caught up would otherwise resurrect a just-cancelled listing. We remember each
+// optimistic op for a short TTL and re-apply it over every fresh fetch.
+const OPTIMISTIC_TTL = 90_000;
+const pendingListings = new Map<string, { listing: Listing | null; at: number }>();
+const pendingOffers = new Map<string, { offer: Offer | null; at: number }>();
+
+function prunePending() {
+  const cut = Date.now() - OPTIMISTIC_TTL;
+  for (const [k, v] of pendingListings) if (v.at < cut) pendingListings.delete(k);
+  for (const [k, v] of pendingOffers) if (v.at < cut) pendingOffers.delete(k);
+}
+
+function applyPendingListings(list: Listing[]): Listing[] {
+  prunePending();
+  const map = new Map(list.map((l) => [l.asset.id, l]));
+  for (const [id, v] of pendingListings) {
+    if (v.listing) map.set(id, v.listing);
+    else map.delete(id);
+  }
+  return [...map.values()];
+}
+function applyPendingOffers(offs: Offer[]): Offer[] {
+  prunePending();
+  const map = new Map(offs.map((o) => [o.id, o]));
+  for (const [id, v] of pendingOffers) {
+    if (v.offer) map.set(id, v.offer);
+    else map.delete(id);
+  }
+  return [...map.values()];
+}
+
 /** Seed the market once from the merged set of all live sources (NEUKO
  *  on-chain indexer + Magic Eden / Tensor aggregation). Replaces the old
  *  either/or seeds, which hid ME/Tensor listings the moment a single NEUKO
@@ -105,8 +140,21 @@ export function seedAll(data: { listings: Listing[]; offers: Offer[]; activity: 
   if (state.seeded) return;
   set({
     seeded: true,
-    listings: data.listings,
-    offers: data.offers,
+    listings: applyPendingListings(data.listings),
+    offers: applyPendingOffers(data.offers),
+    activity: data.activity,
+    swaps: [],
+  });
+}
+
+/** Re-seed an already-seeded market from a fresh fetch (polling / window focus).
+ *  Optimistic in-flight mutations are preserved within their TTL so a lagging
+ *  indexer can't undo a just-completed action. */
+export function reseedAll(data: { listings: Listing[]; offers: Offer[]; activity: ActivityItem[] }) {
+  set({
+    seeded: true,
+    listings: applyPendingListings(data.listings),
+    offers: applyPendingOffers(data.offers),
     activity: data.activity,
     swaps: [],
   });
@@ -134,15 +182,19 @@ export function isDiamondHand(assetId: string): boolean {
  *  on-chain action — no page reload needed. The indexer will confirm on next
  *  seed; these keep the UI in sync in the meantime. */
 export function addListing(listing: Listing) {
+  pendingListings.set(listing.asset.id, { listing, at: Date.now() });
   set({ listings: [...state.listings.filter((l) => l.asset.id !== listing.asset.id), listing] });
 }
 export function removeListing(assetId: string) {
+  pendingListings.set(assetId, { listing: null, at: Date.now() });
   set({ listings: state.listings.filter((l) => l.asset.id !== assetId) });
 }
 export function addOffer(offer: Offer) {
+  pendingOffers.set(offer.id, { offer, at: Date.now() });
   set({ offers: [...state.offers.filter((o) => o.id !== offer.id), offer] });
 }
 export function removeOffer(offerId: string) {
+  pendingOffers.set(offerId, { offer: null, at: Date.now() });
   set({ offers: state.offers.filter((o) => o.id !== offerId) });
 }
 

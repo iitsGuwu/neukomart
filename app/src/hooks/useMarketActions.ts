@@ -176,6 +176,14 @@ export function useMarketActions() {
             toast.error('Invalid price amount');
             return;
           }
+          // A frozen Core asset already carries Freeze/Transfer delegates from an
+          // existing listing (NEUKO, Magic Eden or Tensor). NEUKO's list_asset
+          // would try to re-add those plugins and fail with MPL Core 0xf
+          // ("plugin already exists"). Stop early with an actionable message.
+          if (asset.frozen) {
+            toast.error("This NFT is already listed elsewhere (it's frozen). Delist it on that marketplace first, then list on NEUKO.");
+            return;
+          }
           const priceBase = currency === 'sol' ? prog.solToLamports(price) : prog.gboyToBase(price);
           const ix = prog.buildListIx({
             seller: wallet.publicKey!,
@@ -226,6 +234,18 @@ export function useMarketActions() {
             const url = originUrl(listing.origin, listing.asset.id);
             toast(`This is a ${listing.origin === 'tensor' ? 'Tensor' : 'Magic Eden'} listing — manage it on that marketplace.`, { icon: 'ℹ️' });
             if (url) window.open(url, '_blank', 'noopener,noreferrer');
+            return;
+          }
+          // Guard against a stale/optimistic NEUKO listing: if the listing PDA no
+          // longer exists on-chain (already sold/cancelled, or never confirmed),
+          // cancel_listing reverts with AccountNotInitialized. Detect it first and
+          // just clear the phantom entry instead of surfacing a cryptic error.
+          const conn = getConnection();
+          const [pda] = prog.listingPda(new PublicKey(assetId));
+          const pdaInfo = await conn.getAccountInfo(pda);
+          if (!pdaInfo) {
+            store.removeListing(assetId);
+            toast('That listing is no longer on-chain — cleared it from your view.', { icon: 'ℹ️' });
             return;
           }
           const ix = prog.buildCancelListingIx({
@@ -429,24 +449,23 @@ export function useMarketActions() {
           }
           const amountBase = currency === 'sol' ? prog.solToLamports(amount) : prog.gboyToBase(amount);
           const nonce = BigInt(Date.now());
-          const [offer] = prog.offerPda(wallet.publicKey!, nonce);
+          const [offerPk] = prog.offerPda(wallet.publicKey!, nonce);
           const ixs = [];
 
           if (currency === 'gboy') {
             const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
               await import('@solana/spl-token');
-            const offerGboy = getAssociatedTokenAddressSync(GBOY_MINT, offer, true);
+            const offerGboy = getAssociatedTokenAddressSync(GBOY_MINT, offerPk, true);
             ixs.push(
               createAssociatedTokenAccountIdempotentInstruction(
                 wallet.publicKey!,
                 offerGboy,
-                offer,
+                offerPk,
                 GBOY_MINT,
               )
             );
           }
 
-          const [offerPk] = prog.offerPda(wallet.publicKey!, nonce);
           ixs.push(prog.buildCreateOfferIx({
             bidder: wallet.publicKey!,
             nonce,

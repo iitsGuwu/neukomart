@@ -18,6 +18,9 @@ export interface NeukoAsset {
   attributes: Attribute[];
   /** procedurally-rendered art (true) vs real fetched image (false). */
   generative?: boolean;
+  /** MPL Core frozen flag (DAS). Frozen ⇒ already listed/delegated somewhere
+   *  (NEUKO, Magic Eden or Tensor) — it can't be re-listed until delisted. */
+  frozen?: boolean;
 }
 
 /** Where a listing originates. */

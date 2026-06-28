@@ -7,7 +7,7 @@ import { LineChart, BarChart } from '../components/Charts';
 import { useMarketState } from '../lib/store';
 import { shortAddress, timeAgo } from '../lib/format';
 import { COLLECTIONS, type CollectionKey } from '../lib/constants';
-import { volumeHistory, floorHistory, sumVolume, pctChange } from '../lib/analytics';
+import { volumeHistory, floorHistory, sumVolume, pctChange, hasRealHistory } from '../lib/analytics';
 import type { ActivityKind } from '../lib/types';
 
 const KIND_META: Record<ActivityKind, { label: string; icon: typeof Tag; tone: string }> = {
@@ -36,8 +36,12 @@ export function Activity() {
       .sort((a, b) => b.time - a.time);
   }, [market.activity, kind, coll]);
 
-  const volume = useMemo(() => volumeHistory(range), [range]);
-  const floor = useMemo(() => floorHistory(market.listings, floorColl, range), [market.listings, floorColl, range]);
+  const volume = useMemo(() => volumeHistory(market.activity, range), [market.activity, range]);
+  const floor = useMemo(
+    () => floorHistory(market.listings, market.activity, floorColl, range),
+    [market.listings, market.activity, floorColl, range],
+  );
+  const real = useMemo(() => hasRealHistory(market.activity, range), [market.activity, range]);
   const floorChange = pctChange(floor);
   const volChange = pctChange(volume);
 
@@ -151,7 +155,9 @@ export function Activity() {
                 <div className="label">Trading volume ({range}D)</div>
                 <div className="mt-1 font-display text-2xl font-bold flex items-center gap-2">
                   <CurrencyIcon currency="sol" size={18} />
-                  {sumVolume(volume).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                  {sumVolume(volume).toLocaleString('en-US', {
+                    maximumFractionDigits: sumVolume(volume) >= 100 ? 0 : 2,
+                  })}
                   <Delta pct={volChange} />
                 </div>
               </div>
@@ -188,8 +194,9 @@ export function Activity() {
           </div>
 
           <p className="mt-4 text-xs text-slate-500 text-center">
-            Floor anchors to the live Magic Eden floor; the daily curve is modelled until the
-            on-chain indexer backfills full history.
+            {real
+              ? `Built from real sales indexed over the last ${range} days; floor anchors to the live listing floor.`
+              : 'No sales recorded in this window yet — the curves are modelled and anchored to the live floor until trade history accrues.'}
           </p>
         </>
       )}
