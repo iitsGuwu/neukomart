@@ -141,6 +141,23 @@ export function useBalances() {
   });
 }
 
+/** Ecosystem holdings of an arbitrary wallet (e.g. a swap counterparty), so the
+ *  maker can request the EXACT asset that wallet can actually deliver. */
+export function useAssetsOf(address?: string) {
+  return useQuery({
+    queryKey: ['assets-of', address],
+    enabled: !!address,
+    staleTime: 60_000,
+    queryFn: async (): Promise<NeukoAsset[]> => {
+      try {
+        return await dasAssetsByOwner(address!);
+      } catch {
+        return [];
+      }
+    },
+  });
+}
+
 export function useProgramStatus() {
   return useQuery({
     queryKey: ['program-deployed'],
