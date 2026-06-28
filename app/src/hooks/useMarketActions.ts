@@ -375,7 +375,7 @@ export function useMarketActions() {
   // Swaps are read straight from the chain (see lib/swaps.ts), so accept/cancel
   // get the full swap (nonce + escrowed asset list) and rebuild the ix directly.
   const acceptSwap = useCallback(
-    async (swap: OnChainSwap) => {
+    async (swap: OnChainSwap, mySwaps: OnChainSwap[] = []) => {
       if (!guard()) return;
       if (!live) {
         toast.error('Swaps need the NEUKO program — connect a wallet on mainnet');
@@ -385,14 +385,31 @@ export function useMarketActions() {
         toast.error('This swap is locked to a specific counterparty.');
         return;
       }
-      // The taker must hand over the requested NFTs. If any is listed (frozen),
-      // the transfer would fail — surface that before sending.
-      const frozenWant = swap.want.assets.find((a) => a.frozen);
+
+      // The taker delivers the requested NFTs to the maker. create_swap ESCROWS
+      // offered assets into the swap PDA, so an asset I put up in one of my OWN
+      // open swaps is owned by that PDA — I can't deliver it until that swap is
+      // cancelled. This is exactly the case when I accept a counter of my own
+      // offer (it asks for the very asset my original swap escrowed). Detect such
+      // swaps and cancel them first, in the same transaction, so the assets are
+      // back in my hands before the accept transfers them onward.
+      const requestedIds = new Set(swap.want.assets.map((a) => a.id));
+      const conflicts = mySwaps.filter(
+        (s) => s.id !== swap.id && s.maker === owner && s.give.assets.some((a) => requestedIds.has(a.id)),
+      );
+      const escrowedByMe = new Set(conflicts.flatMap((s) => s.give.assets.map((a) => a.id)));
+
+      // A requested asset I'm NOT escrowing but have listed (frozen) also can't be
+      // delivered — surface that before sending.
+      const frozenWant = swap.want.assets.find((a) => a.frozen && !escrowedByMe.has(a.id));
       if (frozenWant) {
         toast.error(`${frozenWant.name} is listed — delist it before accepting this swap.`);
         return;
       }
+
       try {
+        const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
+          await import('@solana/spl-token');
         const maker = new PublicKey(swap.maker);
         const nonce = BigInt(swap.nonce);
         const offered = swap.give.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
@@ -400,10 +417,20 @@ export function useMarketActions() {
         const usesGboy = swap.give.gboy > 0 || swap.want.gboy > 0;
 
         const ixs = [];
+
+        // 1) Release assets locked in my own swaps that this accept must deliver.
+        for (const cs of conflicts) {
+          const csOffered = cs.give.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
+          const csGboy = cs.give.gboy > 0;
+          if (csGboy) {
+            const myGboy = getAssociatedTokenAddressSync(GBOY_MINT, wallet.publicKey!);
+            ixs.push(createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, myGboy, wallet.publicKey!, GBOY_MINT));
+          }
+          ixs.push(prog.buildCancelSwapIx({ maker: wallet.publicKey!, nonce: BigInt(cs.nonce), offered: csOffered, usesGboy: csGboy }));
+        }
+
+        // 2) $GBOY ATAs for the accept: taker may receive escrowed $GBOY and/or pay it.
         if (usesGboy) {
-          const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
-            await import('@solana/spl-token');
-          // Taker may receive maker's escrowed $GBOY, and/or pay $GBOY to the maker.
           const takerGboy = getAssociatedTokenAddressSync(GBOY_MINT, wallet.publicKey!);
           const makerGboy = getAssociatedTokenAddressSync(GBOY_MINT, maker);
           ixs.push(
@@ -411,18 +438,16 @@ export function useMarketActions() {
             createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, makerGboy, maker, GBOY_MINT),
           );
         }
+
+        // 3) The accept itself.
         ixs.push(
-          prog.buildAcceptSwapIx({
-            taker: wallet.publicKey!,
-            maker,
-            nonce,
-            requested,
-            offered,
-            usesGboy,
-          }),
+          prog.buildAcceptSwapIx({ taker: wallet.publicKey!, maker, nonce, requested, offered, usesGboy }),
         );
+
         await toast.promise(sendSmart(wallet, ixs), {
-          loading: 'Accepting swap on-chain…',
+          loading: conflicts.length
+            ? 'Accepting swap — replacing your original offer…'
+            : 'Accepting swap on-chain…',
           success: 'Swap accepted — assets exchanged!',
           error: (e) => `Failed: ${e.message ?? e}`,
         });

@@ -171,7 +171,7 @@ export function SwapStudio() {
                 <OfferCard
                   key={o.id}
                   offer={o}
-                  onAccept={() => acceptSwap(o)}
+                  onAccept={() => acceptSwap(o, outgoingOffers)}
                   onCounter={() => startCounter(o)}
                 />
               ))}
@@ -192,7 +192,7 @@ export function SwapStudio() {
                         key={o.id}
                         offer={o}
                         incoming
-                        onAccept={() => acceptSwap(o)}
+                        onAccept={() => acceptSwap(o, outgoingOffers)}
                         onCounter={() => startCounter(o)}
                       />
                     ))}
