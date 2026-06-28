@@ -97,33 +97,18 @@ export function isSeeded(): boolean {
   return state.seeded;
 }
 
-/** Seed from the live on-chain indexer (real listings/offers/activity). */
-export function seedFromIndexer(
-  idx: { listings: Listing[]; offers: Offer[]; activity: ActivityItem[] },
-  _assets: NeukoAsset[],
-) {
+/** Seed the market once from the merged set of all live sources (NEUKO
+ *  on-chain indexer + Magic Eden / Tensor aggregation). Replaces the old
+ *  either/or seeds, which hid ME/Tensor listings the moment a single NEUKO
+ *  listing existed. */
+export function seedAll(data: { listings: Listing[]; offers: Offer[]; activity: ActivityItem[] }) {
   if (state.seeded) return;
   set({
     seeded: true,
-    listings: idx.listings,
-    offers: idx.offers,
-    activity: idx.activity,
+    listings: data.listings,
+    offers: data.offers,
+    activity: data.activity,
     swaps: [],
-  });
-}
-
-/** Seed from live Magic Eden data (real listings + sales). */
-export function seedFromLive(
-  live: { listings: Listing[]; activity: ActivityItem[] },
-  _assets: NeukoAsset[],
-) {
-  if (state.seeded) return;
-  set({
-    seeded: true,
-    listings: live.listings,
-    activity: live.activity,
-    swaps: [],
-    offers: [],
   });
 }
 
@@ -143,6 +128,22 @@ export function toggleDiamondHand(assetId: string) {
 
 export function isDiamondHand(assetId: string): boolean {
   return !!state.diamondHands?.[assetId];
+}
+
+/** Optimistic add/remove so the market grid updates instantly after an
+ *  on-chain action — no page reload needed. The indexer will confirm on next
+ *  seed; these keep the UI in sync in the meantime. */
+export function addListing(listing: Listing) {
+  set({ listings: [...state.listings.filter((l) => l.asset.id !== listing.asset.id), listing] });
+}
+export function removeListing(assetId: string) {
+  set({ listings: state.listings.filter((l) => l.asset.id !== assetId) });
+}
+export function addOffer(offer: Offer) {
+  set({ offers: [...state.offers.filter((o) => o.id !== offer.id), offer] });
+}
+export function removeOffer(offerId: string) {
+  set({ offers: state.offers.filter((o) => o.id !== offerId) });
 }
 
 export function resetStore() {

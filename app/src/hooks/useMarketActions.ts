@@ -149,6 +149,7 @@ export function useMarketActions() {
             success: 'Purchased!',
             error: (e) => `Failed: ${e.message ?? e}`,
           });
+          store.removeListing(listing.asset.id); // optimistic: drop from grid now
         } catch {
           /* handled by toast */
         }
@@ -181,6 +182,16 @@ export function useMarketActions() {
             success: 'Listed!',
             error: (e) => `Failed: ${e.message ?? e}`,
           });
+          // optimistic: show in the grid + portfolio immediately
+          store.addListing({
+            id: 'listing-' + asset.id,
+            asset,
+            seller: owner!,
+            price,
+            currency,
+            origin: 'neukomart',
+            createdAt: Math.floor(Date.now() / 1000),
+          });
         } catch {
           /* handled by toast */
         }
@@ -188,7 +199,7 @@ export function useMarketActions() {
       }
       toast.error('Listing not available — NEUKO program not detected on this network');
     },
-    [guard, live, wallet],
+    [guard, live, wallet, owner],
   );
 
   const cancelList = useCallback(
@@ -220,6 +231,7 @@ export function useMarketActions() {
             success: 'Listing cancelled!',
             error: (e) => `Failed: ${e.message ?? e}`,
           });
+          store.removeListing(assetId); // optimistic: drop from grid + portfolio now
         } catch {
           /* handled by toast */
         }
@@ -352,6 +364,7 @@ export function useMarketActions() {
             );
           }
 
+          const [offerPk] = prog.offerPda(wallet.publicKey!, nonce);
           ixs.push(prog.buildCreateOfferIx({
             bidder: wallet.publicKey!,
             nonce,
@@ -366,6 +379,19 @@ export function useMarketActions() {
             success: 'Offer created!',
             error: (e) => `Failed: ${e.message ?? e}`,
           });
+          // optimistic: show in Portfolio "offers you've made" immediately
+          store.addOffer({
+            id: offerPk.toBase58(),
+            bidder: owner!,
+            collection,
+            asset: target?.id,
+            assetName: target?.name,
+            image: target?.image,
+            amount,
+            currency,
+            createdAt: Math.floor(Date.now() / 1000),
+            status: 'open',
+          });
         } catch {
           /* handled by toast */
         }
@@ -373,7 +399,7 @@ export function useMarketActions() {
       }
       toast.error('Offers not available — NEUKO program not detected on this network');
     },
-    [guard, live, wallet],
+    [guard, live, wallet, owner],
   );
 
   const cancelOffer = useCallback(
@@ -404,6 +430,7 @@ export function useMarketActions() {
             success: 'Offer withdrawn!',
             error: (e) => `Failed: ${e.message ?? e}`,
           });
+          store.removeOffer(offerId); // optimistic
         } catch {
           /* handled by toast */
         }
@@ -475,6 +502,9 @@ export function useMarketActions() {
             success: 'Offer accepted!',
             error: (e) => `Failed: ${e.message ?? e}`,
           });
+          // optimistic: offer is filled, asset changes hands → clear both
+          store.removeOffer(offerId);
+          store.removeListing(asset.id);
         } catch {
           /* handled by toast */
         }
@@ -487,8 +517,16 @@ export function useMarketActions() {
 
   /** Batch-buy many listings, chunked so each tx stays under the size/CU limit. */
   const sweep = useCallback(
-    async (listings: Listing[]) => {
-      if (!guard() || listings.length === 0) return;
+    async (allListings: Listing[]) => {
+      if (!guard() || allListings.length === 0) return;
+      // Sweep is NEUKO-native only — external listings have no listing PDA and
+      // would fail the on-chain purchase. Drop them with a heads-up.
+      const listings = allListings.filter((l) => !l.origin || l.origin === 'neukomart');
+      const skipped = allListings.length - listings.length;
+      if (skipped > 0) {
+        toast(`${skipped} Magic Eden/Tensor item${skipped > 1 ? 's' : ''} skipped — buy those on their marketplace.`, { icon: 'ℹ️' });
+      }
+      if (listings.length === 0) return;
       if (live) {
         const { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } =
           await import('@solana/spl-token');
@@ -522,6 +560,7 @@ export function useMarketActions() {
                 }
               }
               await sendSmart(wallet, ixs);
+              for (const l of chunks[c]) store.removeListing(l.asset.id); // optimistic
             }
           })(),
           {

@@ -9,11 +9,11 @@ import {
   dasAssetsByOwner,
   dasEcosystemFull,
 } from '../lib/chain';
-import { seedFromIndexer, seedFromLive, isSeeded } from '../lib/store';
+import { seedAll, isSeeded } from '../lib/store';
 import { loadIndexedMarket } from '../lib/indexer';
 import { loadLiveMarket } from '../lib/live-market';
 import { ALL_ASSETS } from '../lib/seed';
-import type { NeukoAsset } from '../lib/types';
+import type { NeukoAsset, Listing } from '../lib/types';
 
 /**
  * Every ecosystem asset (both collections, fully paginated) for browsing,
@@ -42,9 +42,10 @@ export function useEcosystemAssets() {
   };
 }
 
-/** Seeds the market exactly once, app-wide. Prefers the live on-chain indexer
- *  (`/api/market`) when configured; otherwise seeds the demo set from real
- *  assets. Waits for the ecosystem query to settle to avoid the placeholder. */
+/** Seeds the market exactly once, app-wide, from ALL live sources merged:
+ *  the NEUKO on-chain indexer (`/api/market`) plus Magic Eden / Tensor
+ *  aggregation. NEUKO-native listings take priority per asset (0% fee, native
+ *  settlement). Waits for the ecosystem query to settle to avoid placeholders. */
 export function useSeedMarket() {
   const { assets, isLoading } = useEcosystemAssets();
   useEffect(() => {
@@ -52,21 +53,28 @@ export function useSeedMarket() {
     let cancelled = false;
     (async () => {
       const assetMap = new Map(assets.map((a) => [a.id, a]));
-      // 1) On-chain NEUKO indexer (once the program is deployed + configured).
-      const idx = await loadIndexedMarket(assetMap);
+      // Load both sources in parallel — neither blocks the other.
+      const [idx, live] = await Promise.all([
+        loadIndexedMarket(assetMap),
+        loadLiveMarket(assetMap),
+      ]);
       if (cancelled || isSeeded()) return;
-      if (idx) {
-        seedFromIndexer(idx, assets);
-        return;
-      }
-      // 2) Live Magic Eden listings/sales (real prices today, pre-deploy).
-      const live = await loadLiveMarket(assetMap);
-      if (cancelled || isSeeded()) return;
-      if (live) {
-        seedFromLive(live, assets);
-      } else {
-        seedFromLive({ listings: [], activity: [] }, assets);
-      }
+
+      // Merge listings keyed by asset: seed ME/Tensor first, then overlay
+      // NEUKO listings so a native listing wins over an external one.
+      const byAsset = new Map<string, Listing>();
+      for (const l of live?.listings ?? []) byAsset.set(l.asset.id, l);
+      for (const l of idx?.listings ?? []) byAsset.set(l.asset.id, l);
+
+      const activity = [...(idx?.activity ?? []), ...(live?.activity ?? [])]
+        .sort((a, b) => b.time - a.time)
+        .slice(0, 200);
+
+      seedAll({
+        listings: [...byAsset.values()],
+        offers: idx?.offers ?? [], // offers are NEUKO-native only
+        activity,
+      });
     })();
     return () => {
       cancelled = true;

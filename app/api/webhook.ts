@@ -23,6 +23,8 @@ const KEYS = {
 const ACTIVITY_CAP = 500;
 const SYSTEM = '11111111111111111111111111111111';
 
+const PROGRAM_ID = 'Foz4ZtLQKKdSk4V1d6cDp6Gr3gActoQGUhh5B4YTafA2';
+
 const cur = (c: number) => (c === 1 ? 'gboy' : 'sol');
 const toUi = (amount: bigint, c: number) => Number(amount) / (c === 1 ? 1e10 : 1e9);
 
@@ -108,6 +110,62 @@ function decodeEvents(logs: string[]): DecodedEvent[] {
   return out;
 }
 
+// ---- instruction decoding (state closures with no event) ------------------
+// cancel_listing / cancel_offer emit NO Anchor event (they just close the PDA),
+// so they can't be caught by decodeEvents. We instead scan the transaction's
+// instructions for their 8-byte discriminators and read the affected account
+// from the instruction's account list, so delists / withdrawals are reflected.
+
+const IX_DISC = {
+  cancel_listing: [41, 183, 50, 232, 230, 233, 157, 70],
+  cancel_offer: [92, 203, 223, 40, 92, 89, 53, 119],
+};
+
+/** Resolve account keys whether Helius sends raw (string[] or {pubkey}[]). */
+function accountKeysOf(tx: any): string[] {
+  const m = tx?.transaction?.message ?? tx?.message ?? {};
+  const keys = m.accountKeys ?? tx?.accountKeys ?? [];
+  return keys.map((k: any) => (typeof k === 'string' ? k : k?.pubkey)).filter(Boolean);
+}
+
+/** Top-level instructions, normalised across raw (index-based) and enhanced
+ *  (pubkey-based) Helius payloads. */
+function instructionsOf(tx: any, keys: string[]): { programId: string; accounts: string[]; data: string }[] {
+  const m = tx?.transaction?.message ?? tx?.message ?? {};
+  const raw = m.instructions ?? tx?.instructions ?? [];
+  return raw.map((ix: any) => ({
+    programId: typeof ix.programId === 'string' ? ix.programId : keys[ix.programIdIndex],
+    accounts: (ix.accounts ?? []).map((a: any) => (typeof a === 'number' ? keys[a] : a)),
+    data: ix.data,
+  }));
+}
+
+function decodeClosures(tx: any): { delistedAssets: string[]; cancelledOffers: string[] } {
+  const keys = accountKeysOf(tx);
+  const delistedAssets: string[] = [];
+  const cancelledOffers: string[] = [];
+  for (const ix of instructionsOf(tx, keys)) {
+    if (ix.programId !== PROGRAM_ID || !ix.data) continue;
+    let data: Buffer;
+    try {
+      data = Buffer.from(bs58.decode(ix.data));
+    } catch {
+      continue;
+    }
+    if (data.length < 8) continue;
+    if (matches(data, IX_DISC.cancel_listing)) {
+      // accounts: [seller, listing, asset, ...]
+      const asset = ix.accounts[2];
+      if (asset) delistedAssets.push(asset);
+    } else if (matches(data, IX_DISC.cancel_offer)) {
+      // accounts: [bidder, offer, ...]
+      const offer = ix.accounts[1];
+      if (offer) cancelledOffers.push(offer);
+    }
+  }
+  return { delistedAssets, cancelledOffers };
+}
+
 // ---- tx helpers -----------------------------------------------------------
 
 function extractLogs(tx: any): string[] {
@@ -168,9 +226,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   for (const tx of txs) {
     try {
       const events = decodeEvents(extractLogs(tx));
-      if (!events.length) continue;
+      const closures = decodeClosures(tx);
+      if (!events.length && !closures.delistedAssets.length && !closures.cancelledOffers.length) continue;
       const sig = sigOf(tx);
       const now = Math.floor(Date.now() / 1000);
+
+      // Delists / withdrawals — no event, so remove the closed records directly.
+      for (const asset of closures.delistedAssets) {
+        await redis.hdel(KEYS.listings, asset);
+        processed++;
+      }
+      for (const offer of closures.cancelledOffers) {
+        await redis.hdel(KEYS.offers, offer);
+        processed++;
+      }
 
       for (let i = 0; i < events.length; i++) {
         const e = events[i];

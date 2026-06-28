@@ -62,7 +62,9 @@ export function MarketCard({
                 <PriceTag amount={listing.price} currency={listing.currency} size="sm" />
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                <CartToggle listing={listing} />
+                {/* Sweep cart is native-only: external (ME/Tensor) listings
+                    can't be bought atomically in-app, they redirect. */}
+                {(!listing.origin || listing.origin === 'neukomart') && <CartToggle listing={listing} />}
                 {onBuy && (
                   <button onClick={() => onBuy(listing)} className="btn-primary !px-3.5 !py-2 text-xs">
                     Buy

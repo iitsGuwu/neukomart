@@ -53,7 +53,10 @@ export async function loadIndexedMarket(
     return null;
   }
   if (!data.configured) return null;
-  if (!data.listings?.length && !data.offers?.length) return null;
+  // When configured, the indexer is authoritative. Only fall back to ME if
+  // nothing has been indexed at all (no listings, offers, OR activity) —
+  // i.e. the very first boot before any NEUKO trades exist.
+  if (!data.listings?.length && !data.offers?.length && !data.activity?.length) return null;
 
   const listings: Listing[] = (data.listings || [])
     .filter((l) => assetMap.has(l.asset))

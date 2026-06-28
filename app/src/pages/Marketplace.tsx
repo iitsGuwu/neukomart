@@ -284,7 +284,7 @@ export function Marketplace() {
               {isLoading ? 'Loading…' : `${filtered.length.toLocaleString()} items`}
               {!isLoading && !isPreview && (
                 <span className="chip border border-gboy/25 bg-gboy/10 text-gboy text-[10px]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-gboy animate-pulseGlow" /> Live · Magic Eden
+                  <span className="h-1.5 w-1.5 rounded-full bg-gboy animate-pulseGlow" /> Live · NEUKO + Magic Eden + Tensor
                 </span>
               )}
             </span>
