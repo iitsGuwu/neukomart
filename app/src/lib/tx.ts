@@ -23,13 +23,32 @@ import { getConnection } from './chain';
  *  Create once with `createStaticLookupTable` and set VITE_LOOKUP_TABLE. */
 const STATIC_LUT: string | undefined = import.meta.env.VITE_LOOKUP_TABLE;
 
-/** Pull a human-readable reason out of a failed simulation. */
+/** Turn a failed simulation into an accurate, actionable message. Prefers the
+ *  specific cause (insufficient funds, missing account, the program's own error
+ *  message) over a raw dump, so users can actually troubleshoot. */
 function simErrorMessage(err: unknown, logs: string[]): string {
-  const errLog = [...logs]
+  const errStr = typeof err === 'string' ? err : JSON.stringify(err ?? '');
+  const haystack = (errStr + '\n' + logs.join('\n')).toLowerCase();
+
+  // Insufficient SOL — for fees or for the rent the program must pay on init.
+  if (/insufficient (lamports|funds)|insufficientfunds(forrent)?|debit an account but found no record/.test(haystack)) {
+    return 'Not enough funds — add more SOL to your wallet to cover the network fee and account rent.';
+  }
+  // The fee payer or a referenced account does not exist on-chain.
+  if (/accountnotfound/.test(haystack)) {
+    return 'Not enough funds, or a required account is missing — make sure your wallet has SOL, and that this is a NEUKO-native listing (Magic Eden / Tensor items are managed on those marketplaces).';
+  }
+  // The program's own error message (Anchor logs "Error Message: <text>").
+  const anchorMsg = [...logs]
     .reverse()
-    .find((l) => /Error Message:|AnchorError|insufficient|custom program error|failed|panicked/i.test(l));
-  if (errLog) return errLog.replace(/^Program log:\s*/, '').slice(0, 200);
-  return (typeof err === 'string' ? err : JSON.stringify(err)).slice(0, 200);
+    .map((l) => l.match(/Error Message:\s*(.+?)\s*$/)?.[1])
+    .find(Boolean);
+  if (anchorMsg) return anchorMsg;
+
+  // Fallback: the most relevant raw log line, else the raw error.
+  const raw = [...logs].reverse().find((l) => /custom program error|failed|panicked/i.test(l));
+  if (raw) return raw.replace(/^Program log:\s*/, '').slice(0, 200);
+  return errStr.slice(0, 200);
 }
 
 /** Median priority fee (micro-lamports/CU) from recent blocks, clamped. */
@@ -134,7 +153,7 @@ export async function sendSmart(
   // Catch it up front with a clear, actionable message.
   const balance = await connection.getBalance(payer, 'confirmed').catch(() => null);
   if (balance === 0) {
-    throw new Error('Your wallet has no SOL — add some SOL to cover the network fee and account rent (~0.01 SOL), then try again.');
+    throw new Error('Not enough funds — your wallet has no SOL. Add SOL to cover the network fee and account rent (~0.01 SOL), then try again.');
   }
 
   const keys = uniqueKeys(ixs);
@@ -150,13 +169,7 @@ export async function sendSmart(
 
   let unitLimit = 400_000;
   if (sim) {
-    if (sim.err) {
-      const msg = simErrorMessage(sim.err, sim.logs);
-      if (/AccountNotFound/i.test(msg)) {
-        throw new Error('Transaction would fail — a required account is missing. Make sure your wallet has SOL for fees, and that the item is a NEUKO-native listing (external Magic Eden / Tensor listings are managed on those marketplaces).');
-      }
-      throw new Error(`Transaction would fail — ${msg}`);
-    }
+    if (sim.err) throw new Error(simErrorMessage(sim.err, sim.logs));
     unitLimit = unitLimitFor(sim.units);
   }
 
