@@ -35,6 +35,26 @@ function validatePrice(price: number, currency: Currency): boolean {
   return currency === 'sol' ? price < MAX_SOL : price < MAX_GBOY;
 }
 
+/** Read an account, retrying a few times before concluding it doesn't exist —
+ *  a single RPC read can transiently return null for an account that is live,
+ *  which would otherwise abort a legitimate action with a misleading message. */
+async function getAccountWithRetry(
+  conn: ReturnType<typeof getConnection>,
+  pubkey: PublicKey,
+  attempts = 3,
+) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const info = await conn.getAccountInfo(pubkey, 'confirmed');
+      if (info) return info;
+    } catch {
+      /* transient — retry */
+    }
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, 350 * (i + 1)));
+  }
+  return null;
+}
+
 /** Returns true when a real on-chain tx path is available. */
 export function useCanTransact() {
   const { connected } = useWallet();
@@ -510,7 +530,7 @@ export function useMarketActions() {
       if (live) {
         try {
           const conn = getConnection();
-          const info = await conn.getAccountInfo(new PublicKey(offerId));
+          const info = await getAccountWithRetry(conn, new PublicKey(offerId));
           if (!info) {
             toast.error('Offer account not found on-chain');
             return;
@@ -549,7 +569,7 @@ export function useMarketActions() {
       if (live) {
         try {
           const conn = getConnection();
-          const info = await conn.getAccountInfo(new PublicKey(offerId));
+          const info = await getAccountWithRetry(conn, new PublicKey(offerId));
           if (!info) {
             toast.error('Offer account not found on-chain');
             return;

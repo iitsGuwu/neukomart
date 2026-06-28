@@ -33,14 +33,19 @@ export function Portfolio() {
   const listedIds = new Set(myListings.map((l) => l.asset.id));
   const isNeuko = (origin?: string) => !origin || origin === 'neukomart';
 
-  /** External listing origin for an owned asset, or null. A frozen asset with no
-   *  known listing is still locked elsewhere — default the link to Magic Eden. */
+  /** The known external listing origin for an owned asset, or null. Only returned
+   *  when we actually have a listing record — we never *assert* a marketplace we
+   *  can't see. */
   const externalFor = (a: NeukoAsset): 'magiceden' | 'tensor' | null => {
     const l = listingByAsset.get(a.id);
     if (l && (l.origin === 'magiceden' || l.origin === 'tensor')) return l.origin;
-    if (!l && a.frozen) return 'magiceden';
     return null;
   };
+  /** Frozen but with no known listing on any source — it's locked somewhere
+   *  (Magic Eden, Tensor, or a NEUKO listing the indexer hasn't surfaced yet).
+   *  We can't claim which, so we show a neutral state rather than guess. */
+  const lockedUnknown = (a: NeukoAsset): boolean =>
+    !!a.frozen && !listingByAsset.has(a.id);
   const delistElsewhere = (a: NeukoAsset, origin: 'magiceden' | 'tensor') => {
     const url = originUrl(origin, a.id);
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
@@ -208,6 +213,7 @@ export function Portfolio() {
           {assets.map((a) => {
             const isDh = !!market.diamondHands?.[a.id];
             const ext = externalFor(a);
+            const locked = lockedUnknown(a);
             const listedHere = listedIds.has(a.id) && isNeuko(listingByAsset.get(a.id)?.origin);
             return (
               <div key={a.id} className="group panel overflow-hidden card-hover">
@@ -237,6 +243,13 @@ export function Portfolio() {
                       >
                         <Tag size={13} /> Delist on {ext === 'tensor' ? 'Tensor' : 'ME'}
                       </button>
+                    ) : locked ? (
+                      <div
+                        className="flex-1 flex justify-center items-center"
+                        title="This NFT is frozen — it's listed or locked on a marketplace (Magic Eden, Tensor, or a NEUKO listing still confirming). Delist it there to free it."
+                      >
+                        <EcoBadge tone="harm">Locked</EcoBadge>
+                      </div>
                     ) : (
                       <button onClick={() => setListing(a)} className="btn-ghost flex-1 !py-1.5 text-xs">
                         <Tag size={13} /> List
