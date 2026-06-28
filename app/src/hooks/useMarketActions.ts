@@ -236,29 +236,30 @@ export function useMarketActions() {
             if (url) window.open(url, '_blank', 'noopener,noreferrer');
             return;
           }
-          // Guard against a stale/optimistic NEUKO listing: if the listing PDA no
-          // longer exists on-chain (already sold/cancelled, or never confirmed),
-          // cancel_listing reverts with AccountNotInitialized. Detect it first and
-          // just clear the phantom entry instead of surfacing a cryptic error.
-          const conn = getConnection();
-          const [pda] = prog.listingPda(new PublicKey(assetId));
-          const pdaInfo = await conn.getAccountInfo(pda);
-          if (!pdaInfo) {
-            store.removeListing(assetId);
-            toast('That listing is no longer on-chain — cleared it from your view.', { icon: 'ℹ️' });
-            return;
-          }
           const ix = prog.buildCancelListingIx({
             seller: wallet.publicKey!,
             asset: new PublicKey(assetId),
             collection: listing.asset.collection,
           });
-          await toast.promise(sendSmart(wallet, [ix]), {
-            loading: 'Delisting NFT on-chain…',
-            success: 'Listing cancelled!',
-            error: (e) => `Failed: ${e.message ?? e}`,
-          });
-          store.removeListing(assetId); // optimistic: drop from grid + portfolio now
+          // Let the cancel tx be the source of truth (an unreliable getAccountInfo
+          // read could falsely report a live listing as gone). Only if the program
+          // itself reverts with AccountNotInitialized — i.e. the PDA really was
+          // already closed (sold, or a stale indexer entry) — do we treat it as a
+          // phantom and clear it. Any other failure surfaces normally.
+          const toastId = toast.loading('Delisting NFT on-chain…');
+          try {
+            await sendSmart(wallet, [ix]);
+            toast.success('Listing cancelled!', { id: toastId });
+            store.removeListing(assetId); // optimistic: drop from grid + portfolio now
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (/already initialized|accountnotinitialized|account not initialized/i.test(msg)) {
+              store.removeListing(assetId);
+              toast('That listing was already removed on-chain — cleared it from your view.', { id: toastId, icon: 'ℹ️' });
+            } else {
+              toast.error(`Failed: ${msg}`, { id: toastId });
+            }
+          }
         } catch {
           /* handled by toast */
         }
