@@ -23,12 +23,42 @@ import { getConnection } from './chain';
  *  Create once with `createStaticLookupTable` and set VITE_LOOKUP_TABLE. */
 const STATIC_LUT: string | undefined = import.meta.env.VITE_LOOKUP_TABLE;
 
-/** Turn a failed simulation into an accurate, actionable message. Prefers the
- *  specific cause (insufficient funds, missing account, the program's own error
- *  message) over a raw dump, so users can actually troubleshoot. */
+/** NEUKO Market program error codes (Anchor, 6000+) → plain-English reasons.
+ *  Kept in sync with the program's MarketError enum / IDL. */
+const NEUKO_ERRORS: Record<number, string> = {
+  6000: 'That collection is not part of the NEUKO ecosystem.',
+  6001: 'That account is not a valid Metaplex Core asset.',
+  6002: 'Could not read the Core asset.',
+  6003: 'The asset does not belong to the provided collection.',
+  6004: 'The asset is not part of an allow-listed collection.',
+  6005: 'You are not the current owner of this asset.',
+  6006: 'Price must be greater than zero.',
+  6007: 'The listing currency does not match this action.',
+  6008: 'Only $GBOY is accepted as a token currency.',
+  6009: 'You are not the seller of this listing.',
+  6010: 'You are not the maker of this swap.',
+  6011: 'You are not the bidder of this offer.',
+  6012: 'You are not the designated taker for this swap.',
+  6013: 'The provided asset does not match the expected asset.',
+  6014: 'Too many assets for a single swap (max 8 per side).',
+  6015: 'A swap must offer at least one asset, SOL or $GBOY.',
+  6016: 'A swap must request at least one asset, SOL or $GBOY.',
+  6017: 'The accounts provided do not match the expected layout.',
+  6018: 'A required $GBOY token account is missing.',
+  6019: 'The escrow has insufficient lamports for the SOL transfer.',
+  6020: 'The price exceeds the maximum you agreed to pay.',
+  6021: 'The creator account does not match this collection.',
+};
+
+const MPL_CORE = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
+
+/** Turn a failed simulation into an accurate, actionable message — the specific
+ *  cause (insufficient funds, a decoded program error code, the program's own
+ *  Anchor message) over a raw dump, so users can actually troubleshoot. */
 function simErrorMessage(err: unknown, logs: string[]): string {
   const errStr = typeof err === 'string' ? err : JSON.stringify(err ?? '');
-  const haystack = (errStr + '\n' + logs.join('\n')).toLowerCase();
+  const logText = logs.join('\n');
+  const haystack = (errStr + '\n' + logText).toLowerCase();
 
   // Insufficient SOL — for fees or for the rent the program must pay on init.
   if (/insufficient (lamports|funds)|insufficientfunds(forrent)?|debit an account but found no record/.test(haystack)) {
@@ -38,12 +68,27 @@ function simErrorMessage(err: unknown, logs: string[]): string {
   if (/accountnotfound/.test(haystack)) {
     return 'Not enough funds, or a required account is missing — make sure your wallet has SOL, and that this is a NEUKO-native listing (Magic Eden / Tensor items are managed on those marketplaces).';
   }
-  // The program's own error message (Anchor logs "Error Message: <text>").
+
+  // Decode a custom program error code: structured ({"Custom":N}) or log text
+  // ("custom program error: 0xN"). NEUKO codes map to friendly reasons.
+  const dec = errStr.match(/"Custom":\s*(\d+)/);
+  const hex = logText.match(/custom program error:\s*(0x[0-9a-fA-F]+)/);
+  const code = dec ? parseInt(dec[1], 10) : hex ? parseInt(hex[1], 16) : null;
+  if (code != null && NEUKO_ERRORS[code]) return NEUKO_ERRORS[code];
+
+  // The program's own Anchor message (covers any error not in the map above).
   const anchorMsg = [...logs]
     .reverse()
     .map((l) => l.match(/Error Message:\s*(.+?)\s*$/)?.[1])
     .find(Boolean);
   if (anchorMsg) return anchorMsg;
+
+  // A custom error from a CPI (e.g. Metaplex Core) with no Anchor message.
+  if (code != null) {
+    return new RegExp(`${MPL_CORE}[\\s\\S]*?custom program error`, 'i').test(logText)
+      ? `The NFT program rejected this (code 0x${code.toString(16)}) — the asset may already be listed or carry leftover delegates.`
+      : `On-chain program error (code 0x${code.toString(16)}).`;
+  }
 
   // Fallback: the most relevant raw log line, else the raw error.
   const raw = [...logs].reverse().find((l) => /custom program error|failed|panicked/i.test(l));
