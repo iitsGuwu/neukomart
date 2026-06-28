@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { Plus, X, ArrowRightLeft, Repeat2, Trash2, Check } from 'lucide-react';
+import { Plus, X, ArrowRightLeft, Repeat2, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import { Modal, AssetImage, CurrencyIcon, SectionTitle, EcoBadge } from '../components/ui';
@@ -60,11 +60,14 @@ export function SwapStudio() {
     toast(`Countering — adjust the terms and submit`, { icon: '↔️' });
   };
 
-  // Hide private swaps locked to someone else; always show your own.
-  const openOffers = swaps.filter(
-    (s) => s.status === 'open' && s.maker !== me && (!s.taker || s.taker === me),
-  );
-  const myOffers = swaps.filter((s) => s.maker === me);
+  // Public board: only swaps open to anyone (no locked counterparty).
+  const openOffers = swaps.filter((s) => s.status === 'open' && s.maker !== me && !s.taker);
+  // Swaps a maker locked specifically TO me — I see them as incoming offers.
+  const incomingOffers = swaps.filter((s) => s.status === 'open' && s.maker !== me && s.taker === me);
+  // Swaps I created.
+  const outgoingOffers = swaps.filter((s) => s.maker === me);
+  // "My offers" = incoming (locked to me, I can accept) + my own outgoing.
+  const myOffers = [...incomingOffers, ...outgoingOffers];
 
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 py-10">
@@ -177,17 +180,40 @@ export function SwapStudio() {
 
         {tab === 'mine' &&
           (myOffers.length === 0 ? (
-            <Empty>You haven&apos;t created any swap offers yet.</Empty>
+            <Empty>No incoming offers, and you haven&apos;t created any swaps yet.</Empty>
           ) : (
-            <div className="grid md:grid-cols-2 gap-4">
-              {myOffers.map((o) => (
-                <OfferCard
-                  key={o.id}
-                  offer={o}
-                  mine
-                  onCancel={o.status === 'open' ? () => cancelSwap(o) : undefined}
-                />
-              ))}
+            <div className="space-y-6">
+              {incomingOffers.length > 0 && (
+                <div>
+                  <div className="label mb-3 text-neon">Incoming — locked to you ({incomingOffers.length})</div>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {incomingOffers.map((o) => (
+                      <OfferCard
+                        key={o.id}
+                        offer={o}
+                        incoming
+                        onAccept={() => acceptSwap(o)}
+                        onCounter={() => startCounter(o)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {outgoingOffers.length > 0 && (
+                <div>
+                  {incomingOffers.length > 0 && <div className="label mb-3">Your offers ({outgoingOffers.length})</div>}
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {outgoingOffers.map((o) => (
+                      <OfferCard
+                        key={o.id}
+                        offer={o}
+                        mine
+                        onCancel={o.status === 'open' ? () => cancelSwap(o) : undefined}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
       </div>
@@ -318,33 +344,33 @@ function AssetPickerModal({
   mode?: 'give' | 'want';
 }) {
   const [sel, setSel] = useState<Record<string, NeukoAsset>>({});
-  const [selTypes, setSelTypes] = useState<Record<string, BadgeTypeEntry>>({});
+  // Badge type → requested quantity (want mode lets you ask for N of an emblem).
+  const [selTypes, setSelTypes] = useState<Record<string, number>>({});
   const [filter, setFilter] = useState('');
 
   // seed selection from existing
   useMemo(() => {
-    if (open) {
-      const init: Record<string, NeukoAsset> = {};
-      pool.forEach((a) => selectedIds.includes(a.id) && (init[a.id] = a));
-      setSel(init);
-      // Restore badge type selections from existing selectedIds
-      if (mode === 'want') {
-        const initTypes: Record<string, BadgeTypeEntry> = {};
-        pool.forEach((a) => {
-          if (a.collection === 'badges' && selectedIds.includes(a.id)) {
-            const emblem = a.attributes.find((at) => at.trait_type === 'Emblem')?.value;
-            if (emblem && !initTypes[emblem]) {
-              initTypes[emblem] = { emblem, representative: a };
-            }
-          }
-        });
-        setSelTypes(initTypes);
+    if (!open) return;
+    const init: Record<string, NeukoAsset> = {};
+    const counts: Record<string, number> = {};
+    pool.forEach((a) => {
+      if (!selectedIds.includes(a.id)) return;
+      const emblem = a.attributes.find((at) => at.trait_type === 'Emblem')?.value;
+      // In want mode, badges collapse into per-emblem quantities; everything
+      // else (and all of give mode) stays as individual selections.
+      if (mode === 'want' && a.collection === 'badges' && emblem) {
+        counts[emblem] = (counts[emblem] ?? 0) + 1;
+      } else {
+        init[a.id] = a;
       }
-    }
+    });
+    setSel(init);
+    setSelTypes(counts);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // In 'want' mode, split pool into harmies (individual) and badge types (grouped).
+  // In 'want' mode, split pool into harmies (individual) and badge types (grouped,
+  // tracking every member so a quantity can resolve to that many distinct badges).
   const badgeTypes = useMemo(() => {
     if (mode !== 'want') return [];
     const groups = new Map<string, BadgeTypeEntry>();
@@ -352,9 +378,9 @@ function AssetPickerModal({
       if (a.collection !== 'badges') continue;
       const emblem = a.attributes.find((at) => at.trait_type === 'Emblem')?.value;
       if (!emblem) continue;
-      if (!groups.has(emblem)) {
-        groups.set(emblem, { emblem, representative: a });
-      }
+      const g = groups.get(emblem);
+      if (g) g.members.push(a);
+      else groups.set(emblem, { emblem, representative: a, members: [a] });
     }
     return [...groups.values()].sort((a, b) => a.emblem.localeCompare(b.emblem));
   }, [pool, mode]);
@@ -377,24 +403,31 @@ function AssetPickerModal({
       return n;
     });
 
-  const toggleBadgeType = (bt: BadgeTypeEntry) =>
+  const setBadgeQty = (emblem: string, qty: number) =>
     setSelTypes((s) => {
       const n = { ...s };
-      if (n[bt.emblem]) delete n[bt.emblem];
-      else n[bt.emblem] = bt;
+      if (qty <= 0) delete n[emblem];
+      else n[emblem] = qty;
       return n;
     });
 
-  const totalSelected = Object.keys(sel).length + (mode === 'want' ? Object.keys(selTypes).length : 0);
+  const totalSelected =
+    Object.keys(sel).length + Object.values(selTypes).reduce((a, b) => a + b, 0);
 
   const handleConfirm = () => {
     const assets = [...Object.values(sel)];
-    // Add one representative badge per selected type
+    // Resolve each requested badge quantity to that many distinct on-chain badges
+    // of the emblem (the swap locks exact assets, so N requested = N members).
     if (mode === 'want') {
-      for (const bt of Object.values(selTypes)) {
-        // Don't double-add if it's already individually selected
-        if (!assets.some((a) => a.id === bt.representative.id)) {
-          assets.push(bt.representative);
+      for (const bt of badgeTypes) {
+        const qty = selTypes[bt.emblem] ?? 0;
+        let added = 0;
+        for (const member of bt.members) {
+          if (added >= qty) break;
+          if (!assets.some((a) => a.id === member.id)) {
+            assets.push(member);
+            added++;
+          }
         }
       }
     }
@@ -416,14 +449,14 @@ function AssetPickerModal({
           {/* Badge types (want mode only) */}
           {mode === 'want' && filteredBadgeTypes.length > 0 && (
             <>
-              <div className="label mb-2 text-neon">Badge type (any holder can fill)</div>
+              <div className="label mb-2 text-neon">Badge type — set how many of each</div>
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5 mb-4">
                 {filteredBadgeTypes.map((bt) => (
                   <BadgeTypeCard
                     key={bt.emblem}
                     entry={bt}
-                    selected={!!selTypes[bt.emblem]}
-                    onToggle={toggleBadgeType}
+                    qty={selTypes[bt.emblem] ?? 0}
+                    onChange={(q) => setBadgeQty(bt.emblem, q)}
                   />
                 ))}
               </div>
@@ -435,7 +468,15 @@ function AssetPickerModal({
               {mode === 'want' && <div className="label mb-2 text-harm">Harmies (specific NFT)</div>}
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
                 {filtered.map((a) => (
-                  <SelectableAssetCard key={a.id} asset={a} selected={!!sel[a.id]} onToggle={toggle} />
+                  <SelectableAssetCard
+                    key={a.id}
+                    asset={a}
+                    selected={!!sel[a.id]}
+                    onToggle={toggle}
+                    // Can't offer a listed (frozen) NFT in a swap — it's escrowed elsewhere.
+                    disabled={mode === 'give' && !!a.frozen}
+                    lockedLabel={mode === 'give' && a.frozen ? 'LISTED' : undefined}
+                  />
                 ))}
               </div>
             </>
@@ -460,41 +501,67 @@ function AssetPickerModal({
 interface BadgeTypeEntry {
   emblem: string;
   representative: NeukoAsset;
+  /** Every badge of this emblem in the pool — a requested quantity resolves to
+   *  this many distinct on-chain badges. */
+  members: NeukoAsset[];
 }
 
 function BadgeTypeCard({
   entry,
-  selected,
-  onToggle,
+  qty,
+  onChange,
 }: {
   entry: BadgeTypeEntry;
-  selected: boolean;
-  onToggle: (e: BadgeTypeEntry) => void;
+  qty: number;
+  onChange: (qty: number) => void;
 }) {
+  const max = entry.members.length;
   return (
-    <button
-      type="button"
-      onClick={() => onToggle(entry)}
+    <div
       className={clsx(
         'relative panel overflow-hidden text-left transition-all',
-        selected ? 'ring-2 ring-neon shadow-glow' : 'hover:-translate-y-0.5',
+        qty > 0 ? 'ring-2 ring-neon shadow-glow' : 'hover:-translate-y-0.5',
       )}
     >
-      <div className="relative aspect-square overflow-hidden">
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(max, qty + 1))}
+        title={`Add a ${entry.emblem} Badge`}
+        className="block w-full relative aspect-square overflow-hidden"
+      >
         <AssetImage asset={entry.representative} rounded="rounded-none" />
-        {selected && (
-          <div className="absolute inset-0 bg-neon/15 grid place-items-center">
-            <span className="grid h-8 w-8 place-items-center rounded-full bg-neon text-[var(--on-accent)]">
-              <Check size={18} strokeWidth={3} />
-            </span>
-          </div>
+        {qty > 0 && (
+          <span className="absolute top-1.5 right-1.5 grid h-6 min-w-[1.5rem] px-1.5 place-items-center rounded-full bg-neon text-[var(--on-accent)] text-xs font-bold tabular-nums">
+            ×{qty}
+          </span>
         )}
-      </div>
+      </button>
       <div className="p-2.5">
         <div className="text-xs font-semibold truncate">{entry.emblem} Badge</div>
-        <div className="text-[10px] text-slate-500">Any #{entry.emblem}</div>
+        <div className="mt-1.5 flex items-center justify-between gap-1">
+          <span className="text-[10px] text-slate-500">{max} avail.</span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={qty <= 0}
+              onClick={() => onChange(Math.max(0, qty - 1))}
+              className="grid h-6 w-6 place-items-center rounded-md border border-[color:var(--border)] text-slate-300 hover:bg-[var(--hover)] disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              −
+            </button>
+            <span className="w-4 text-center text-xs tabular-nums">{qty}</span>
+            <button
+              type="button"
+              disabled={qty >= max}
+              onClick={() => onChange(Math.min(max, qty + 1))}
+              className="grid h-6 w-6 place-items-center rounded-md border border-[color:var(--border)] text-slate-300 hover:bg-[var(--hover)] disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              +
+            </button>
+          </div>
+        </div>
       </div>
-    </button>
+    </div>
   );
 }
 

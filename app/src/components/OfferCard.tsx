@@ -40,12 +40,15 @@ function SideStack({ side, label }: { side: SwapSide; label: string }) {
 export function OfferCard({
   offer,
   mine,
+  incoming,
   onAccept,
   onCancel,
   onCounter,
 }: {
   offer: SwapOffer;
   mine?: boolean;
+  /** This swap is locked specifically to the viewer (an incoming offer). */
+  incoming?: boolean;
   onAccept?: () => void;
   onCancel?: () => void;
   onCounter?: () => void;
@@ -62,9 +65,11 @@ export function OfferCard({
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm text-slate-400">
           by <span className="font-mono text-slate-200">{mine ? 'you' : shortAddress(offer.maker, 5)}</span>
-          {offer.taker && (
+          {incoming ? (
+            <span className="ml-2 chip bg-neon/10 text-neon border border-neon/20 text-[10px]">for you</span>
+          ) : offer.taker ? (
             <span className="ml-2 chip bg-flare/10 text-flare border border-flare/20 text-[10px]">private</span>
-          )}
+          ) : null}
         </div>
         <span className={clsx('flex items-center gap-1.5 text-xs font-semibold capitalize', statusTone)}>
           {offer.status === 'open' && <Clock size={12} />}

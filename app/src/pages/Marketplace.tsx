@@ -106,7 +106,20 @@ export function Marketplace() {
       return (a.number ?? 0) - (b.number ?? 0);
     });
     return arr;
-  }, [assets, coll, q, traits, status, cur, priceMin, priceMax, sort, listingByAsset]);
+  }, [assets, coll, q, traits, status, source, cur, priceMin, priceMax, sort, listingByAsset]);
+
+  // The marketplace sources actually present in the currently-shown listings —
+  // so the "Live" badge lists only the real sources, not a hardcoded set.
+  const liveSources = useMemo(() => {
+    const present = new Set<MarketOrigin>();
+    for (const a of filtered) {
+      const l = listingByAsset.get(a.id);
+      if (l) present.add(l.origin ?? 'neukomart');
+    }
+    return (['neukomart', 'magiceden', 'tensor'] as MarketOrigin[])
+      .filter((o) => present.has(o))
+      .map((o) => ORIGIN_META[o].label.replace('Native ', ''));
+  }, [filtered, listingByAsset]);
 
   const setCollection = (c: CollFilter) => {
     setColl(c);
@@ -282,9 +295,9 @@ export function Marketplace() {
           <div className="mb-4 flex items-center justify-between text-sm text-slate-400">
             <span className="flex items-center gap-2.5">
               {isLoading ? 'Loading…' : `${filtered.length.toLocaleString()} items`}
-              {!isLoading && !isPreview && (
+              {!isLoading && !isPreview && liveSources.length > 0 && (
                 <span className="chip border border-gboy/25 bg-gboy/10 text-gboy text-[10px]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-gboy animate-pulseGlow" /> Live · NEUKO + Magic Eden + Tensor
+                  <span className="h-1.5 w-1.5 rounded-full bg-gboy animate-pulseGlow" /> Live · {liveSources.join(' + ')}
                 </span>
               )}
             </span>

@@ -298,6 +298,13 @@ export function useMarketActions() {
         return;
       }
       try {
+        // A listed NFT is frozen with marketplace delegates — escrowing it into
+        // the swap would fail. Stop early with an actionable message.
+        const frozenGive = give.assets.find((a) => a.frozen);
+        if (frozenGive) {
+          toast.error(`${frozenGive.name} is currently listed — delist it before swapping it.`);
+          return;
+        }
         const offered = give.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
         const requested = want.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
         const solOffered = give.sol > 0 ? prog.solToLamports(give.sol) : 0n;
@@ -376,6 +383,13 @@ export function useMarketActions() {
       }
       if (swap.taker && swap.taker !== owner) {
         toast.error('This swap is locked to a specific counterparty.');
+        return;
+      }
+      // The taker must hand over the requested NFTs. If any is listed (frozen),
+      // the transfer would fail — surface that before sending.
+      const frozenWant = swap.want.assets.find((a) => a.frozen);
+      if (frozenWant) {
+        toast.error(`${frozenWant.name} is listed — delist it before accepting this swap.`);
         return;
       }
       try {

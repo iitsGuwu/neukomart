@@ -130,7 +130,7 @@ export const ORIGIN_META: Record<
 > = {
   magiceden: { label: 'Magic Eden', short: 'Magic Eden', color: '#e42575', fee: 0.02,  feeLabel: '2% fee'     },
   tensor:    { label: 'Tensor',     short: 'Tensor',     color: '#5c7cfa', fee: 0.015, feeLabel: '1.5% fee'   },
-  neukomart: { label: 'Native NEUKOMART',  short: 'NEUKOMART',      color: '#ff2222', fee: 0.05,  feeLabel: '5% royalty' },
+  neukomart: { label: 'Native Neukomart',  short: 'Neukomart',      color: '#ff2222', fee: 0.05,  feeLabel: '5% royalty' },
 };
 
 /** Link to the item's page on its source marketplace (null for neukomart). */

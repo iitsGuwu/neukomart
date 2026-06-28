@@ -40,8 +40,14 @@ export function MarketCard({
     <div className="group panel overflow-hidden card-hover">
       <Link to={`/asset/${asset.id}`} className="block relative aspect-square overflow-hidden">
         <AssetImage asset={asset} rounded="rounded-none" className="transition-transform duration-300 group-hover:scale-105" />
+        {/* Top-left shows the listing's marketplace source; falls back to the
+            collection for unlisted items (which have no source). */}
         <div className="absolute top-3 left-3">
-          <CollectionPill collection={asset.collection} />
+          {listing ? (
+            <OriginBadge origin={listing.origin ?? 'neukomart'} compact />
+          ) : (
+            <CollectionPill collection={asset.collection} />
+          )}
         </div>
         {!listing && (
           <div className="absolute top-3 right-3 chip bg-ink-950/70 border border-[color:var(--border)] text-slate-400 text-[10px]">
@@ -97,11 +103,14 @@ export function SelectableAssetCard({
   selected,
   onToggle,
   disabled,
+  lockedLabel,
 }: {
   asset: NeukoAsset;
   selected?: boolean;
   onToggle?: (a: NeukoAsset) => void;
   disabled?: boolean;
+  /** Overlay text explaining why a card is locked (e.g. "LISTED"). */
+  lockedLabel?: string;
 }) {
   const market = useMarketState();
   const isDh = !!market.diamondHands?.[asset.id];
@@ -131,6 +140,11 @@ export function SelectableAssetCard({
           <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center p-2 text-center text-neon font-bold text-[9px] tracking-wider">
             <Gem size={16} className="mb-1" fill="currentColor" />
             DIAMOND HAND
+          </div>
+        )}
+        {!isDh && lockedLabel && (
+          <div className="absolute inset-0 bg-black/55 flex items-center justify-center p-2 text-center text-flare font-bold text-[10px] tracking-wider">
+            {lockedLabel}
           </div>
         )}
       </div>
