@@ -77,11 +77,14 @@ function simErrorMessage(err: unknown, logs: string[]): string {
   if (code != null && NEUKO_ERRORS[code]) return NEUKO_ERRORS[code];
 
   // The program's own Anchor message (covers any error not in the map above).
+  // Include the offending account name when Anchor reports one — invaluable for
+  // diagnosing constraint / not-initialized failures.
+  const acct = logText.match(/AnchorError caused by account:\s*([A-Za-z0-9_]+)/)?.[1];
   const anchorMsg = [...logs]
     .reverse()
     .map((l) => l.match(/Error Message:\s*(.+?)\s*$/)?.[1])
     .find(Boolean);
-  if (anchorMsg) return anchorMsg;
+  if (anchorMsg) return acct ? `${anchorMsg} (account: ${acct})` : anchorMsg;
 
   // A custom error from a CPI (e.g. Metaplex Core) with no Anchor message.
   if (code != null) {
