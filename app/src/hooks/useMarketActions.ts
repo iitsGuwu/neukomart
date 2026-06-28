@@ -436,7 +436,8 @@ export function useMarketActions() {
         const nonce = BigInt(swap.nonce);
         const offered = swap.give.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
         const requested = swap.want.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
-        const usesGboy = swap.give.gboy > 0 || swap.want.gboy > 0;
+        const gboyOffered = swap.give.gboy > 0; // maker escrowed $GBOY → taker receives it
+        const gboyRequested = swap.want.gboy > 0; // taker pays $GBOY → maker receives it
 
         const ixs = [];
 
@@ -451,19 +452,21 @@ export function useMarketActions() {
           ixs.push(prog.buildCancelSwapIx({ maker: wallet.publicKey!, nonce: BigInt(cs.nonce), offered: csOffered, usesGboy: csGboy }));
         }
 
-        // 2) $GBOY ATAs for the accept: taker may receive escrowed $GBOY and/or pay it.
-        if (usesGboy) {
+        // 2) Create only the $GBOY ATAs the accept will actually use: the taker's
+        //    (it receives escrowed $GBOY and/or pays $GBOY) and the maker's (only
+        //    when the taker pays). The escrow ATA already exists from create_swap.
+        if (gboyOffered || gboyRequested) {
           const takerGboy = getAssociatedTokenAddressSync(GBOY_MINT, wallet.publicKey!);
+          ixs.push(createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, takerGboy, wallet.publicKey!, GBOY_MINT));
+        }
+        if (gboyRequested) {
           const makerGboy = getAssociatedTokenAddressSync(GBOY_MINT, maker);
-          ixs.push(
-            createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, takerGboy, wallet.publicKey!, GBOY_MINT),
-            createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, makerGboy, maker, GBOY_MINT),
-          );
+          ixs.push(createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey!, makerGboy, maker, GBOY_MINT));
         }
 
         // 3) The accept itself.
         ixs.push(
-          prog.buildAcceptSwapIx({ taker: wallet.publicKey!, maker, nonce, requested, offered, usesGboy }),
+          prog.buildAcceptSwapIx({ taker: wallet.publicKey!, maker, nonce, requested, offered, gboyOffered, gboyRequested }),
         );
 
         await toast.promise(sendSmart(wallet, ixs), {

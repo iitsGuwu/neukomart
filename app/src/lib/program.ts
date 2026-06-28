@@ -280,26 +280,30 @@ export function buildAcceptSwapIx(params: {
   nonce: bigint;
   requested: SwapAssetRef[];
   offered: SwapAssetRef[];
-  usesGboy: boolean;
+  /** Maker escrowed $GBOY (taker receives it; the escrow ATA exists). */
+  gboyOffered: boolean;
+  /** Taker pays $GBOY to the maker. */
+  gboyRequested: boolean;
 }): TransactionInstruction {
   const [swap] = swapPda(params.maker, params.nonce);
-  const takerGboy = params.usesGboy
-    ? getAssociatedTokenAddressSync(GBOY_MINT, params.taker)
-    : PROGRAM_ID;
-  const makerGboy = params.usesGboy
-    ? getAssociatedTokenAddressSync(GBOY_MINT, params.maker)
-    : PROGRAM_ID;
-  const swapGboy = params.usesGboy
-    ? getAssociatedTokenAddressSync(GBOY_MINT, swap, true)
-    : PROGRAM_ID;
+  // Pass each optional $GBOY account ONLY when the program actually touches it,
+  // else None (= program-id sentinel). Critically, swap_gboy (the escrow ATA) is
+  // created only when $GBOY was OFFERED — passing it for a requested-only swap
+  // references an uninitialized account → AccountNotInitialized.
+  const needTaker = params.gboyOffered || params.gboyRequested; // taker receives and/or pays
+  const needMaker = params.gboyRequested; // maker receives the taker's payment
+  const needSwap = params.gboyOffered; // escrow is the source of offered $GBOY
+  const takerGboy = needTaker ? getAssociatedTokenAddressSync(GBOY_MINT, params.taker) : PROGRAM_ID;
+  const makerGboy = needMaker ? getAssociatedTokenAddressSync(GBOY_MINT, params.maker) : PROGRAM_ID;
+  const swapGboy = needSwap ? getAssociatedTokenAddressSync(GBOY_MINT, swap, true) : PROGRAM_ID;
 
   const keys = [
     META.signer(params.taker),
     META.w(params.maker),
     META.w(swap),
-    params.usesGboy ? META.w(takerGboy) : META.ro(takerGboy),
-    params.usesGboy ? META.w(makerGboy) : META.ro(makerGboy),
-    params.usesGboy ? META.w(swapGboy) : META.ro(swapGboy),
+    needTaker ? META.w(takerGboy) : META.ro(takerGboy),
+    needMaker ? META.w(makerGboy) : META.ro(makerGboy),
+    needSwap ? META.w(swapGboy) : META.ro(swapGboy),
     META.ro(MPL_CORE_PROGRAM_ID),
     META.ro(TOKEN_PROGRAM_ID),
     META.ro(SystemProgram.programId),
