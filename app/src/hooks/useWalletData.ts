@@ -13,6 +13,7 @@ import {
 import { seedAll, reseedAll, isSeeded } from '../lib/store';
 import { loadIndexedMarket } from '../lib/indexer';
 import { loadLiveMarket } from '../lib/live-market';
+import { fetchOnChainListings } from '../lib/listings';
 import { fetchSwaps } from '../lib/swaps';
 import { ALL_ASSETS } from '../lib/seed';
 import type { NeukoAsset, Listing } from '../lib/types';
@@ -57,21 +58,24 @@ export function useSeedMarket() {
     const assetMap = new Map(assets.map((a) => [a.id, a]));
 
     const refresh = async () => {
-      // Load both sources in parallel — neither blocks the other.
-      const [idx, live] = await Promise.all([
+      // NEUKO listings are read straight from the chain (authoritative — the
+      // webhook/Redis indexer can drift, serving phantom or missing listings).
+      // ME/Tensor aggregation + the indexer (offers / activity history) load in
+      // parallel. A thrown source becomes null so a blip can't blank the grid.
+      const [chain, idx, live] = await Promise.all([
+        fetchOnChainListings(getConnection(), assetMap).then((l) => l).catch(() => null),
         loadIndexedMarket(assetMap),
         loadLiveMarket(assetMap),
       ]);
       if (cancelled) return;
-      // Both sources unreachable on a refresh → keep the last good market rather
-      // than blanking the grid on a transient network blip.
-      if (isSeeded() && idx === null && live === null) return;
+      // All sources unreachable on a refresh → keep the last good market.
+      if (isSeeded() && chain === null && idx === null && live === null) return;
 
       // Merge listings keyed by asset: ME/Tensor first, then overlay NEUKO
-      // listings so a native listing wins over an external one.
+      // on-chain listings so a native listing wins over an external one.
       const byAsset = new Map<string, Listing>();
       for (const l of live?.listings ?? []) byAsset.set(l.asset.id, l);
-      for (const l of idx?.listings ?? []) byAsset.set(l.asset.id, l);
+      for (const l of chain ?? []) byAsset.set(l.asset.id, l);
 
       const activity = [...(idx?.activity ?? []), ...(live?.activity ?? [])]
         .sort((a, b) => b.time - a.time)
