@@ -68,6 +68,18 @@ function vecPubkey(keys: PublicKey[]): Buffer {
 function optionPubkey(pk?: PublicKey | null): Buffer {
   return pk ? Buffer.concat([u8(1), pubkey(pk)]) : u8(0);
 }
+/** Vec<[u8;32]> — 4-byte LE length then each 32-byte element. */
+function vecBytes32(items: Uint8Array[]): Buffer {
+  const len = Buffer.alloc(4);
+  len.writeUInt32LE(items.length);
+  return Buffer.concat([len, ...items.map((b) => Buffer.from(b))]);
+}
+/** Vec<Vec<[u8;32]>> — outer length, then each inner vec via vecBytes32. */
+function vecVecBytes32(items: Uint8Array[][]): Buffer {
+  const len = Buffer.alloc(4);
+  len.writeUInt32LE(items.length);
+  return Buffer.concat([len, ...items.map(vecBytes32)]);
+}
 
 // ---- PDAs -----------------------------------------------------------------
 
@@ -230,6 +242,8 @@ export function buildCreateSwapIx(params: {
   nonce: bigint;
   offered: SwapAssetRef[];
   requested: SwapAssetRef[];
+  /** Merkle roots for "any holder of this badge type" slots (one per slot). */
+  requestedGroups?: Uint8Array[];
   solOffered: bigint;
   gboyOffered: bigint;
   solRequested: bigint;
@@ -250,6 +264,7 @@ export function buildCreateSwapIx(params: {
     u64(params.nonce),
     u8(params.offered.length),
     vecPubkey(params.requested.map((r) => r.asset)),
+    vecBytes32(params.requestedGroups ?? []),
     u64(params.solOffered),
     u64(params.gboyOffered),
     u64(params.solRequested),
@@ -279,6 +294,10 @@ export function buildAcceptSwapIx(params: {
   maker: PublicKey;
   nonce: bigint;
   requested: SwapAssetRef[];
+  /** Assets the taker delivers into trait-group slots (one per group), in slot order. */
+  groups?: SwapAssetRef[];
+  /** Merkle proof per group asset (same order as `groups`). */
+  proofs?: Uint8Array[][];
   offered: SwapAssetRef[];
   /** Maker escrowed $GBOY (taker receives it; the escrow ATA exists). */
   gboyOffered: boolean;
@@ -308,14 +327,18 @@ export function buildAcceptSwapIx(params: {
     META.ro(TOKEN_PROGRAM_ID),
     META.ro(SystemProgram.programId),
   ];
-  // remaining: requested pairs (taker -> maker), then offered pairs (escrow -> taker)
+  // remaining: requested exact pairs, then group pairs, then offered pairs.
   for (const r of params.requested) {
     keys.push(META.w(r.asset), META.ro(collectionAddress(r.collection)));
+  }
+  for (const g of params.groups ?? []) {
+    keys.push(META.w(g.asset), META.ro(collectionAddress(g.collection)));
   }
   for (const o of params.offered) {
     keys.push(META.w(o.asset), META.ro(collectionAddress(o.collection)));
   }
-  return new TransactionInstruction({ programId: PROGRAM_ID, keys, data: IX.accept_swap });
+  const data = Buffer.concat([IX.accept_swap, vecVecBytes32(params.proofs ?? [])]);
+  return new TransactionInstruction({ programId: PROGRAM_ID, keys, data });
 }
 
 export function buildCancelSwapIx(params: {

@@ -306,6 +306,13 @@ pub mod neuko_market {
                 && args.requested_assets.len() <= MAX_SWAP_ASSETS,
             MarketError::TooManyAssets
         );
+        // The taker must deliver one asset per requested slot (exact + group), so
+        // keep the total bounded for account size and compute.
+        require!(
+            args.requested_groups.len() <= MAX_SWAP_ASSETS
+                && args.requested_assets.len() + args.requested_groups.len() <= MAX_SWAP_ASSETS,
+            MarketError::TooManyGroups
+        );
         require!(
             args.offered_count as usize != 0
                 || args.sol_offered > 0
@@ -341,9 +348,10 @@ pub mod neuko_market {
             offered_assets.push(asset_ai.key());
         }
 
-        // Validate requested assets are non-empty when no token/sol requested
+        // Validate the request is non-empty (exact asset, trait group, SOL or $GBOY).
         require!(
             !args.requested_assets.is_empty()
+                || !args.requested_groups.is_empty()
                 || args.sol_requested > 0
                 || args.gboy_requested > 0,
             MarketError::EmptyRequest
@@ -393,6 +401,7 @@ pub mod neuko_market {
         swap.taker = args.taker.unwrap_or_default();
         swap.offered_assets = offered_assets;
         swap.requested_assets = args.requested_assets;
+        swap.requested_groups = args.requested_groups;
         swap.sol_offered = args.sol_offered;
         swap.gboy_offered = args.gboy_offered;
         swap.sol_requested = args.sol_requested;
@@ -413,10 +422,14 @@ pub mod neuko_market {
     /// any offered SOL/$GBOY).
     ///
     /// `remaining_accounts` layout:
-    ///   [ requested[0].asset, requested[0].collection, ... ]   (taker -> maker)
-    ///   [ offered[0].asset,   offered[0].collection,   ... ]   (escrow -> taker)
+    ///   [ requested_exact pairs ]   (taker -> maker; exact pubkey match)
+    ///   [ requested_group pairs ]   (taker -> maker; any asset proving into the slot's root)
+    ///   [ offered pairs ]           (escrow -> taker)
+    ///
+    /// `proofs[i]` is the Merkle proof for the asset delivered into group slot i.
     pub fn accept_swap<'info>(
         ctx: Context<'_, '_, '_, 'info, AcceptSwap<'info>>,
+        proofs: Vec<Vec<[u8; 32]>>,
     ) -> Result<()> {
         let swap = &ctx.accounts.swap_offer;
 
@@ -430,15 +443,22 @@ pub mod neuko_market {
         }
 
         let req_n = swap.requested_assets.len();
+        let grp_n = swap.requested_groups.len();
         let off_n = swap.offered_assets.len();
         let rem = ctx.remaining_accounts;
-        require!(rem.len() == (req_n + off_n) * 2, MarketError::AccountMismatch);
+        require!(rem.len() == (req_n + grp_n + off_n) * 2, MarketError::AccountMismatch);
+        require!(proofs.len() == grp_n, MarketError::AccountMismatch);
 
-        // 1) Taker delivers requested assets -> maker.
+        // Track every asset the taker hands over so a single NFT can't be used to
+        // fill more than one requested slot.
+        let mut delivered: Vec<Pubkey> = Vec::with_capacity(req_n + grp_n);
+
+        // 1) Taker delivers the exact requested assets -> maker.
         for i in 0..req_n {
             let asset_ai = &rem[i * 2];
             let coll_ai = &rem[i * 2 + 1];
             require_keys_eq!(asset_ai.key(), swap.requested_assets[i], MarketError::AssetMismatch);
+            require!(!delivered.contains(&asset_ai.key()), MarketError::DuplicateSwapAsset);
             assert_allowed_collection(&coll_ai.key())?;
             assert_asset_owned_by(asset_ai, &coll_ai.key(), &ctx.accounts.taker.key())?;
             transfer_core(
@@ -451,6 +471,34 @@ pub mod neuko_market {
                 &ctx.accounts.system_program.to_account_info(),
                 None,
             )?;
+            delivered.push(asset_ai.key());
+        }
+
+        // 1b) Taker fills each trait-group slot with any owned asset that proves
+        //     into that slot's Merkle root -> maker. Membership in the root (built
+        //     off-chain over e.g. every "Snake" badge) is what makes the slot
+        //     fillable by ANY holder of that type.
+        for i in 0..grp_n {
+            let asset_ai = &rem[(req_n + i) * 2];
+            let coll_ai = &rem[(req_n + i) * 2 + 1];
+            require!(!delivered.contains(&asset_ai.key()), MarketError::DuplicateSwapAsset);
+            assert_allowed_collection(&coll_ai.key())?;
+            assert_asset_owned_by(asset_ai, &coll_ai.key(), &ctx.accounts.taker.key())?;
+            require!(
+                merkle_member(&asset_ai.key(), &proofs[i], &swap.requested_groups[i]),
+                MarketError::InvalidMerkleProof
+            );
+            transfer_core(
+                &ctx.accounts.mpl_core_program,
+                asset_ai,
+                coll_ai,
+                &ctx.accounts.taker.to_account_info(),
+                &ctx.accounts.maker.to_account_info(),
+                &ctx.accounts.taker.to_account_info(),
+                &ctx.accounts.system_program.to_account_info(),
+                None,
+            )?;
+            delivered.push(asset_ai.key());
         }
 
         // 2) Taker pays requested SOL / $GBOY -> maker.
@@ -488,8 +536,8 @@ pub mod neuko_market {
         let bump = swap.bump;
         let seeds: &[&[u8]] = &[b"swap", maker_key.as_ref(), nonce_bytes.as_ref(), &[bump]];
         for i in 0..off_n {
-            let asset_ai = &rem[(req_n + i) * 2];
-            let coll_ai = &rem[(req_n + i) * 2 + 1];
+            let asset_ai = &rem[(req_n + grp_n + i) * 2];
+            let coll_ai = &rem[(req_n + grp_n + i) * 2 + 1];
             require_keys_eq!(asset_ai.key(), swap.offered_assets[i], MarketError::AssetMismatch);
             transfer_core(
                 &ctx.accounts.mpl_core_program,
@@ -865,6 +913,24 @@ fn compute_royalty(price: u64) -> u64 {
     ((price as u128) * (ROYALTY_BPS as u128) / 10_000) as u64
 }
 
+/// Verify a leaf belongs to a Merkle tree with the given `root`, using
+/// sorted-pair SHA-256 hashing (OpenZeppelin-style, so proofs carry no
+/// direction bits). The leaf is `sha256(asset_pubkey)`; the tree is built
+/// off-chain over the set of asset pubkeys that satisfy a requested trait group
+/// (e.g. every "Snake" badge), so a valid proof proves the delivered asset is a
+/// member of that group without the program needing any off-chain trait data.
+fn merkle_member(asset_key: &Pubkey, proof: &[[u8; 32]], root: &[u8; 32]) -> bool {
+    let mut computed = solana_sha256_hasher::hashv(&[asset_key.as_ref()]).to_bytes();
+    for node in proof {
+        computed = if computed <= *node {
+            solana_sha256_hasher::hashv(&[&computed, node]).to_bytes()
+        } else {
+            solana_sha256_hasher::hashv(&[node, &computed]).to_bytes()
+        };
+    }
+    &computed == root
+}
+
 /// Verify `asset_ai` is a Core asset that belongs to `collection` and is
 /// currently owned by `owner`.
 ///
@@ -1118,8 +1184,15 @@ pub struct SwapOffer {
     pub taker: Pubkey,
     #[max_len(MAX_SWAP_ASSETS)]
     pub offered_assets: Vec<Pubkey>,
+    /// Specific assets the taker must deliver (exact pubkey match).
     #[max_len(MAX_SWAP_ASSETS)]
     pub requested_assets: Vec<Pubkey>,
+    /// Trait-group slots: each is a Merkle root over the set of asset pubkeys
+    /// that satisfy a requested type (e.g. "any Snake badge"). The taker fills
+    /// each slot with any asset they own that proves into the corresponding
+    /// root. Order matters: proofs and delivered group assets line up by index.
+    #[max_len(MAX_SWAP_ASSETS)]
+    pub requested_groups: Vec<[u8; 32]>,
     pub sol_offered: u64,
     pub gboy_offered: u64,
     pub sol_requested: u64,
@@ -1133,6 +1206,8 @@ pub struct SwapOffer {
 pub struct SwapArgs {
     pub offered_count: u8,
     pub requested_assets: Vec<Pubkey>,
+    /// Merkle roots for "any asset matching this trait" slots (see SwapOffer).
+    pub requested_groups: Vec<[u8; 32]>,
     pub sol_offered: u64,
     pub gboy_offered: u64,
     pub sol_requested: u64,
@@ -1676,4 +1751,10 @@ pub enum MarketError {
     PriceExceedsMax,
     #[msg("Creator account does not match the expected creator for this collection")]
     InvalidCreator,
+    #[msg("The delivered asset is not a valid member of the requested trait group")]
+    InvalidMerkleProof,
+    #[msg("The same asset cannot be used to fill more than one requested slot")]
+    DuplicateSwapAsset,
+    #[msg("Too many requested slots for a single swap")]
+    TooManyGroups,
 }

@@ -83,8 +83,11 @@ const enc = (name: string, args: any) => Buffer.from(program.coder.instruction.e
       fe.buildCreateOfferIx({ bidder: B.publicKey, nonce: 43n, collection: 'badges', asset: null, amount: 10n, currency: 'sol' }).data,
       { nonce: new BN(43), args: { collection: badgesPk, asset: null, amount: new BN(10), currency: { sol: {} } } }],
     ['create_swap', 'createSwap',
-      fe.buildCreateSwapIx({ maker: A.publicKey, nonce: 5n, offered: [{ asset: someAsset, collection: 'badges' }], requested: [{ asset: someAsset2, collection: 'harmies' }], solOffered: 1n, gboyOffered: 2n, solRequested: 3n, gboyRequested: 4n, taker: B.publicKey }).data,
-      { nonce: new BN(5), args: { offeredCount: 1, requestedAssets: [someAsset2], solOffered: new BN(1), gboyOffered: new BN(2), solRequested: new BN(3), gboyRequested: new BN(4), taker: B.publicKey } }],
+      fe.buildCreateSwapIx({ maker: A.publicKey, nonce: 5n, offered: [{ asset: someAsset, collection: 'badges' }], requested: [{ asset: someAsset2, collection: 'harmies' }], requestedGroups: [new Uint8Array(32).fill(7)], solOffered: 1n, gboyOffered: 2n, solRequested: 3n, gboyRequested: 4n, taker: B.publicKey }).data,
+      { nonce: new BN(5), args: { offeredCount: 1, requestedAssets: [someAsset2], requestedGroups: [Array(32).fill(7)], solOffered: new BN(1), gboyOffered: new BN(2), solRequested: new BN(3), gboyRequested: new BN(4), taker: B.publicKey } }],
+    ['accept_swap', 'acceptSwap',
+      fe.buildAcceptSwapIx({ taker: B.publicKey, maker: A.publicKey, nonce: 9n, requested: [], groups: [{ asset: someAsset, collection: 'badges' }], proofs: [[new Uint8Array(32).fill(3), new Uint8Array(32).fill(4)]], offered: [], gboyOffered: false, gboyRequested: false }).data,
+      { proofs: [[Array(32).fill(3), Array(32).fill(4)]] }],
   ];
   for (const [label, ixName, feData, args] of fullCases) {
     let anchorData: Buffer | null = null;

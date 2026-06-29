@@ -6,6 +6,7 @@ import type { SwapOffer, SwapSide } from '../lib/types';
 
 function SideStack({ side, label }: { side: SwapSide; label: string }) {
   const hasMoney = side.sol > 0 || side.gboy > 0;
+  const groups = side.groups ?? [];
   return (
     <div className="flex-1 min-w-0">
       <div className="label mb-2">{label}</div>
@@ -15,10 +16,19 @@ function SideStack({ side, label }: { side: SwapSide; label: string }) {
             <AssetImage asset={a} rounded="rounded-none" />
           </div>
         ))}
-        {side.assets.length === 0 && !hasMoney && (
+        {side.assets.length === 0 && groups.length === 0 && !hasMoney && (
           <span className="text-xs text-slate-500">—</span>
         )}
       </div>
+      {groups.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {groups.map((g) => (
+            <span key={g.emblem} className="chip border border-neon/30 bg-neon/10 text-neon text-[11px]">
+              Any {g.emblem}{g.count > 1 ? ` ×${g.count}` : ''}
+            </span>
+          ))}
+        </div>
+      )}
       {hasMoney && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {side.sol > 0 && (

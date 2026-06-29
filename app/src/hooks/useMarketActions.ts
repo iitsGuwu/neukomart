@@ -15,6 +15,7 @@ import { originUrl } from '../components/ui';
 import { useProgramStatus } from './useWalletData';
 import * as store from '../lib/store';
 import * as prog from '../lib/program';
+import { merkleRoot, merkleProof, badgePubkeysByEmblem, emblemRootIndex, emblemOf } from '../lib/merkle';
 import type { OnChainSwap } from '../lib/swaps';
 import type { Listing, NeukoAsset, SwapSide, Currency } from '../lib/types';
 
@@ -291,7 +292,13 @@ export function useMarketActions() {
   );
 
   const createSwap = useCallback(
-    async (give: SwapSide, want: SwapSide, taker?: string, mySwaps: OnChainSwap[] = []) => {
+    async (
+      give: SwapSide,
+      want: SwapSide,
+      taker?: string,
+      mySwaps: OnChainSwap[] = [],
+      ecosystem: NeukoAsset[] = [],
+    ) => {
       if (!guard()) return;
       if (!live) {
         toast.error('Swaps need the NEUKO program — connect a wallet on mainnet');
@@ -322,16 +329,34 @@ export function useMarketActions() {
         const solRequested = want.sol > 0 ? prog.solToLamports(want.sol) : 0n;
         const gboyRequested = want.gboy > 0 ? prog.gboyToBase(want.gboy) : 0n;
 
+        // "Any holder of this badge type" slots → a Merkle root per slot (one
+        // per requested count). The root is built over every badge of that emblem.
+        const byEmblem = badgePubkeysByEmblem(ecosystem);
+        const requestedGroups: Uint8Array[] = [];
+        for (const g of want.groups ?? []) {
+          const pubkeys = byEmblem.get(g.emblem) ?? [];
+          if (pubkeys.length === 0) {
+            toast.error(`No ${g.emblem} badges found in the ecosystem — try again once assets load.`);
+            return;
+          }
+          const root = merkleRoot(pubkeys);
+          for (let i = 0; i < g.count; i++) requestedGroups.push(root);
+        }
+
         if (offered.length === 0 && solOffered === 0n && gboyOffered === 0n) {
           toast.error('Offer at least one asset, SOL or $GBOY');
           return;
         }
-        if (requested.length === 0 && solRequested === 0n && gboyRequested === 0n) {
-          toast.error('Request at least one asset, SOL or $GBOY');
+        if (requested.length === 0 && requestedGroups.length === 0 && solRequested === 0n && gboyRequested === 0n) {
+          toast.error('Request at least one asset, badge type, SOL or $GBOY');
           return;
         }
-        if (offered.length > 8 || requested.length > 8) {
-          toast.error('A swap can hold at most 8 assets per side');
+        if (offered.length > 8) {
+          toast.error('A swap can offer at most 8 assets');
+          return;
+        }
+        if (requested.length + requestedGroups.length > 8) {
+          toast.error('A swap can request at most 8 items total');
           return;
         }
         let takerPk: PublicKey | null = null;
@@ -374,6 +399,7 @@ export function useMarketActions() {
             nonce,
             offered,
             requested,
+            requestedGroups,
             solOffered,
             gboyOffered,
             solRequested,
@@ -397,7 +423,12 @@ export function useMarketActions() {
   // Swaps are read straight from the chain (see lib/swaps.ts), so accept/cancel
   // get the full swap (nonce + escrowed asset list) and rebuild the ix directly.
   const acceptSwap = useCallback(
-    async (swap: OnChainSwap, mySwaps: OnChainSwap[] = []) => {
+    async (
+      swap: OnChainSwap,
+      mySwaps: OnChainSwap[] = [],
+      ecosystem: NeukoAsset[] = [],
+      myAssets: NeukoAsset[] = [],
+    ) => {
       if (!guard()) return;
       if (!live) {
         toast.error('Swaps need the NEUKO program — connect a wallet on mainnet');
@@ -439,6 +470,33 @@ export function useMarketActions() {
         const gboyOffered = swap.give.gboy > 0; // maker escrowed $GBOY → taker receives it
         const gboyRequested = swap.want.gboy > 0; // taker pays $GBOY → maker receives it
 
+        // Fill each "any holder of this badge type" slot with one of MY badges that
+        // proves into the slot's Merkle root. Resolve root→emblem, then pick a
+        // distinct owned badge of that emblem and build its proof.
+        const byEmblem = badgePubkeysByEmblem(ecosystem);
+        const rootToEmblem = emblemRootIndex(ecosystem);
+        const usedIds = new Set<string>(swap.want.assets.map((a) => a.id)); // don't reuse an exact-requested asset
+        const groups: { asset: PublicKey; collection: 'badges' | 'harmies' }[] = [];
+        const proofs: Uint8Array[][] = [];
+        for (const root of swap.groupRoots) {
+          const emblem = rootToEmblem.get(root);
+          if (!emblem) {
+            toast.error('Could not resolve a requested badge type — try again once assets load.');
+            return;
+          }
+          const pubkeys = byEmblem.get(emblem) ?? [];
+          const badge = myAssets.find(
+            (a) => a.collection === 'badges' && !a.frozen && !usedIds.has(a.id) && emblemOf(a) === emblem && pubkeys.includes(a.id),
+          );
+          if (!badge) {
+            toast.error(`You need an unlisted ${emblem} Badge to fill this swap.`);
+            return;
+          }
+          usedIds.add(badge.id);
+          groups.push({ asset: new PublicKey(badge.id), collection: 'badges' });
+          proofs.push(merkleProof(pubkeys, badge.id));
+        }
+
         const ixs = [];
 
         // 1) Release assets locked in my own swaps that this accept must deliver.
@@ -466,7 +524,7 @@ export function useMarketActions() {
 
         // 3) The accept itself.
         ixs.push(
-          prog.buildAcceptSwapIx({ taker: wallet.publicKey!, maker, nonce, requested, offered, gboyOffered, gboyRequested }),
+          prog.buildAcceptSwapIx({ taker: wallet.publicKey!, maker, nonce, requested, groups, proofs, offered, gboyOffered, gboyRequested }),
         );
 
         await toast.promise(sendSmart(wallet, ixs), {

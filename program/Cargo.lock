@@ -1069,6 +1069,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "mpl-core",
+ "solana-sha256-hasher",
 ]
 
 [[package]]

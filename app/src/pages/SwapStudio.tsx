@@ -10,8 +10,9 @@ import { OfferCard } from '../components/OfferCard';
 import { useMyAssets, useEcosystemAssets, useSwaps, useAssetsOf } from '../hooks/useWalletData';
 import { shortAddress } from '../lib/format';
 import { useMarketActions } from '../hooks/useMarketActions';
+import { badgePubkeysByEmblem } from '../lib/merkle';
 import type { OnChainSwap } from '../lib/swaps';
-import type { NeukoAsset, SwapSide } from '../lib/types';
+import type { BadgeGroup, NeukoAsset, SwapSide } from '../lib/types';
 
 const empty: SwapSide = { assets: [], sol: 0, gboy: 0 };
 
@@ -47,10 +48,11 @@ export function SwapStudio() {
   const directed = !!takerAddr && !!takerAssets && takerAssets.length > 0;
   const wantPool = directed ? takerAssets! : ecosystem;
 
+  const wantGroupCount = (want.groups ?? []).reduce((n, g) => n + g.count, 0);
   const valid =
     me &&
     (give.assets.length > 0 || give.sol > 0 || give.gboy > 0) &&
-    (want.assets.length > 0 || want.sol > 0 || want.gboy > 0);
+    (want.assets.length > 0 || wantGroupCount > 0 || want.sol > 0 || want.gboy > 0);
 
   const resetBuilder = () => {
     setGive(empty);
@@ -64,7 +66,7 @@ export function SwapStudio() {
       toast.error('Add something to both sides of the trade');
       return;
     }
-    await createSwap(give, want, taker.trim() || undefined, outgoingOffers);
+    await createSwap(give, want, taker.trim() || undefined, outgoingOffers, ecosystem);
     resetBuilder();
   };
 
@@ -132,6 +134,7 @@ export function SwapStudio() {
             side={want}
             onAddAssets={() => setPicker('want')}
             onRemoveAsset={(a) => setWant((s) => ({ ...s, assets: s.assets.filter((x) => x.id !== a.id) }))}
+            onRemoveGroup={(emblem) => setWant((s) => ({ ...s, groups: (s.groups ?? []).filter((g) => g.emblem !== emblem) }))}
             onSol={(v) => setWant((s) => ({ ...s, sol: v }))}
             onGboy={(v) => setWant((s) => ({ ...s, gboy: v }))}
           />
@@ -189,7 +192,7 @@ export function SwapStudio() {
                 <OfferCard
                   key={o.id}
                   offer={o}
-                  onAccept={() => acceptSwap(o, outgoingOffers)}
+                  onAccept={() => acceptSwap(o, outgoingOffers, ecosystem, mine)}
                   onCounter={() => startCounter(o)}
                 />
               ))}
@@ -210,7 +213,7 @@ export function SwapStudio() {
                         key={o.id}
                         offer={o}
                         incoming
-                        onAccept={() => acceptSwap(o, outgoingOffers)}
+                        onAccept={() => acceptSwap(o, outgoingOffers, ecosystem, mine)}
                         onCounter={() => startCounter(o)}
                       />
                     ))}
@@ -243,10 +246,12 @@ export function SwapStudio() {
             ? 'Select assets to give'
             : directed
               ? `Request from ${shortAddress(takerAddr, 4)}'s wallet`
-              : 'Select the exact NFT(s) to request'
+              : 'Choose what to request'
         }
         pool={picker === 'give' ? mine : wantPool}
+        ecosystem={ecosystem}
         selectedIds={(picker === 'give' ? give : want).assets.map((a) => a.id)}
+        selectedGroups={picker === 'want' ? want.groups ?? [] : []}
         emptyHint={
           picker === 'give'
             ? 'Connect a wallet that holds Badges or Harmies.'
@@ -256,9 +261,9 @@ export function SwapStudio() {
         }
         mode={picker === 'want' ? 'want' : 'give'}
         onClose={() => setPicker(null)}
-        onConfirm={(assets) => {
+        onConfirm={(assets, groups) => {
           if (picker === 'give') setGive((s) => ({ ...s, assets }));
-          else setWant((s) => ({ ...s, assets }));
+          else setWant((s) => ({ ...s, assets, groups }));
           setPicker(null);
         }}
       />
@@ -272,6 +277,7 @@ function SwapSidePanel({
   side,
   onAddAssets,
   onRemoveAsset,
+  onRemoveGroup,
   onSol,
   onGboy,
 }: {
@@ -280,9 +286,12 @@ function SwapSidePanel({
   side: SwapSide;
   onAddAssets: () => void;
   onRemoveAsset: (a: NeukoAsset) => void;
+  onRemoveGroup?: (emblem: string) => void;
   onSol: (v: number) => void;
   onGboy: (v: number) => void;
 }) {
+  const groups = side.groups ?? [];
+  const empty = side.assets.length === 0 && groups.length === 0;
   return (
     <div className={clsx('rounded-2xl border p-4', accent === 'neon' ? 'border-neon/20 bg-neon/[0.03]' : 'border-harm/20 bg-harm/[0.03]')}>
       <div className="flex items-center justify-between mb-3">
@@ -291,6 +300,22 @@ function SwapSidePanel({
           <Plus size={14} /> Add NFTs
         </button>
       </div>
+
+      {/* "any holder of this badge type" requests */}
+      {groups.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {groups.map((g) => (
+            <span key={g.emblem} className="chip border border-neon/30 bg-neon/10 text-neon text-[11px] inline-flex items-center gap-1">
+              Any {g.emblem} Badge{g.count > 1 ? ` ×${g.count}` : ''}
+              {onRemoveGroup && (
+                <button onClick={() => onRemoveGroup(g.emblem)} className="hover:text-slate-50">
+                  <X size={11} />
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 min-h-[5.5rem]">
         {side.assets.map((a) => (
@@ -304,7 +329,7 @@ function SwapSidePanel({
             </button>
           </div>
         ))}
-        {side.assets.length === 0 && (
+        {empty && (
           <button
             onClick={onAddAssets}
             className="col-span-3 sm:col-span-4 grid place-items-center rounded-xl border border-dashed border-[color:var(--border)] text-slate-500 text-sm h-[5.5rem] hover:border-[color:var(--border-strong)] hover:text-slate-300 transition"
@@ -370,7 +395,9 @@ function AssetPickerModal({
   open,
   title,
   pool,
+  ecosystem,
   selectedIds,
+  selectedGroups,
   emptyHint,
   onClose,
   onConfirm,
@@ -379,14 +406,18 @@ function AssetPickerModal({
   open: boolean;
   title: string;
   pool: NeukoAsset[];
+  /** Full ecosystem — badge types ("any holder") are derived from this. */
+  ecosystem: NeukoAsset[];
   selectedIds: string[];
+  selectedGroups: BadgeGroup[];
   emptyHint: string;
   onClose: () => void;
-  onConfirm: (assets: NeukoAsset[]) => void;
-  /** 'want' mode groups badges by type instead of showing individual NFTs. */
+  onConfirm: (assets: NeukoAsset[], groups: BadgeGroup[]) => void;
+  /** 'want' mode also offers "any holder of this badge type" slots. */
   mode?: 'give' | 'want';
 }) {
   const [sel, setSel] = useState<Record<string, NeukoAsset>>({});
+  const [selGroups, setSelGroups] = useState<Record<string, number>>({});
   const [filter, setFilter] = useState('');
 
   // seed selection from existing
@@ -395,13 +426,30 @@ function AssetPickerModal({
     const init: Record<string, NeukoAsset> = {};
     pool.forEach((a) => { if (selectedIds.includes(a.id)) init[a.id] = a; });
     setSel(init);
+    const g: Record<string, number> = {};
+    for (const grp of selectedGroups) g[grp.emblem] = grp.count;
+    setSelGroups(g);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // The on-chain swap locks EXACT assets, so every selection is an individual,
-  // specific NFT — Harmie or Badge alike. There is no "any badge of this type":
-  // the taker must own the precise asset requested, so the maker picks it
-  // explicitly (searchable by name / number).
+  // Badge types available across the whole ecosystem (want mode only): each emblem
+  // becomes an "any holder of this type" slot. The max requestable is how many of
+  // that emblem exist.
+  const badgeTypes = useMemo(() => {
+    if (mode !== 'want') return [] as { emblem: string; representative: NeukoAsset; available: number }[];
+    const byEmblem = badgePubkeysByEmblem(ecosystem);
+    const rep = new Map<string, NeukoAsset>();
+    for (const a of ecosystem) {
+      if (a.collection !== 'badges') continue;
+      const e = a.attributes.find((at) => at.trait_type === 'Emblem')?.value;
+      if (e && !rep.has(e)) rep.set(e, a);
+    }
+    return [...byEmblem.entries()]
+      .map(([emblem, pubkeys]) => ({ emblem, representative: rep.get(emblem)!, available: pubkeys.length }))
+      .filter((b) => b.representative)
+      .sort((a, b) => a.emblem.localeCompare(b.emblem));
+  }, [ecosystem, mode]);
+
   const filtered = pool
     .filter((a) => a.name.toLowerCase().includes(filter.toLowerCase()))
     .slice(0, 120);
@@ -414,41 +462,82 @@ function AssetPickerModal({
       return n;
     });
 
-  const totalSelected = Object.keys(sel).length;
+  const setGroupQty = (emblem: string, qty: number) =>
+    setSelGroups((s) => {
+      const n = { ...s };
+      if (qty <= 0) delete n[emblem];
+      else n[emblem] = qty;
+      return n;
+    });
 
-  const handleConfirm = () => onConfirm(Object.values(sel));
+  const groupTotal = Object.values(selGroups).reduce((a, b) => a + b, 0);
+  const totalSelected = Object.keys(sel).length + groupTotal;
+
+  const handleConfirm = () =>
+    onConfirm(
+      Object.values(sel),
+      Object.entries(selGroups).map(([emblem, count]) => ({ emblem, count })),
+    );
+
+  const nothing = filtered.length === 0 && badgeTypes.length === 0;
 
   return (
     <Modal open={open} onClose={onClose} title={title} maxWidth="max-w-3xl">
       <input
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
-        placeholder="Filter…"
+        placeholder="Filter by name or number…"
         className="input mb-4"
       />
-      {filtered.length === 0 ? (
+      {nothing ? (
         <div className="py-12 text-center text-slate-400">{emptyHint}</div>
       ) : (
-        <div className="max-h-[50vh] overflow-y-auto pr-1">
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
-            {filtered.map((a) => (
-              <SelectableAssetCard
-                key={a.id}
-                asset={a}
-                selected={!!sel[a.id]}
-                onToggle={toggle}
-                // Can't offer a listed (frozen) NFT in a swap — it's escrowed elsewhere.
-                disabled={mode === 'give' && !!a.frozen}
-                lockedLabel={mode === 'give' && a.frozen ? 'LISTED' : undefined}
-              />
-            ))}
-          </div>
+        <div className="max-h-[50vh] overflow-y-auto pr-1 space-y-4">
+          {/* Badge types — any holder of this emblem can fill the slot. */}
+          {mode === 'want' && badgeTypes.length > 0 && (
+            <div>
+              <div className="label mb-2 text-neon">Badge type — anyone holding this badge can fill</div>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
+                {badgeTypes
+                  .filter((b) => `${b.emblem} badge`.toLowerCase().includes(filter.toLowerCase()))
+                  .map((b) => (
+                    <BadgeTypeCard
+                      key={b.emblem}
+                      emblem={b.emblem}
+                      representative={b.representative}
+                      available={b.available}
+                      qty={selGroups[b.emblem] ?? 0}
+                      onChange={(q) => setGroupQty(b.emblem, q)}
+                    />
+                  ))}
+              </div>
+            </div>
+          )}
+          {/* Specific NFTs. */}
+          {filtered.length > 0 && (
+            <div>
+              {mode === 'want' && <div className="label mb-2 text-harm">Or request a specific NFT</div>}
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
+                {filtered.map((a) => (
+                  <SelectableAssetCard
+                    key={a.id}
+                    asset={a}
+                    selected={!!sel[a.id]}
+                    onToggle={toggle}
+                    // Can't offer a listed (frozen) NFT in a swap — it's escrowed elsewhere.
+                    disabled={mode === 'give' && !!a.frozen}
+                    lockedLabel={mode === 'give' && a.frozen ? 'LISTED' : undefined}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
       <div className="mt-5 flex items-center justify-between">
         <span className="text-sm text-slate-400">{totalSelected} selected</span>
         <div className="flex gap-2">
-          <button onClick={() => setSel({})} className="btn-ghost !py-2">
+          <button onClick={() => { setSel({}); setSelGroups({}); }} className="btn-ghost !py-2">
             <Trash2 size={14} /> Clear
           </button>
           <button onClick={handleConfirm} className="btn-primary !py-2">
@@ -457,6 +546,50 @@ function AssetPickerModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+function BadgeTypeCard({
+  emblem,
+  representative,
+  available,
+  qty,
+  onChange,
+}: {
+  emblem: string;
+  representative: NeukoAsset;
+  available: number;
+  qty: number;
+  onChange: (qty: number) => void;
+}) {
+  const max = Math.min(available, 8);
+  return (
+    <div className={clsx('relative panel overflow-hidden text-left transition-all', qty > 0 ? 'ring-2 ring-neon shadow-glow' : 'hover:-translate-y-0.5')}>
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(max, qty + 1))}
+        title={`Request any ${emblem} Badge`}
+        className="block w-full relative aspect-square overflow-hidden"
+      >
+        <AssetImage asset={representative} rounded="rounded-none" />
+        {qty > 0 && (
+          <span className="absolute top-1.5 right-1.5 grid h-6 min-w-[1.5rem] px-1.5 place-items-center rounded-full bg-neon text-[var(--on-accent)] text-xs font-bold tabular-nums">
+            ×{qty}
+          </span>
+        )}
+      </button>
+      <div className="p-2.5">
+        <div className="text-xs font-semibold truncate">Any {emblem}</div>
+        <div className="mt-1.5 flex items-center justify-between gap-1">
+          <span className="text-[10px] text-slate-500">{available} exist</span>
+          <div className="flex items-center gap-1">
+            <button type="button" disabled={qty <= 0} onClick={() => onChange(Math.max(0, qty - 1))} className="grid h-6 w-6 place-items-center rounded-md border border-[color:var(--border)] text-slate-300 hover:bg-[var(--hover)] disabled:opacity-30 disabled:cursor-not-allowed">−</button>
+            <span className="w-4 text-center text-xs tabular-nums">{qty}</span>
+            <button type="button" disabled={qty >= max} onClick={() => onChange(Math.min(max, qty + 1))} className="grid h-6 w-6 place-items-center rounded-md border border-[color:var(--border)] text-slate-300 hover:bg-[var(--hover)] disabled:opacity-30 disabled:cursor-not-allowed">+</button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

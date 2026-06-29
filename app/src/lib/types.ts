@@ -37,8 +37,18 @@ export interface Listing {
   origin?: MarketOrigin;
 }
 
+/** A "any holder of this badge type" request slot — fillable by any owner of a
+ *  badge with this emblem (count = how many). Backed on-chain by a Merkle root. */
+export interface BadgeGroup {
+  emblem: string;
+  count: number;
+}
+
 export interface SwapSide {
   assets: NeukoAsset[];
+  /** Trait-group requests ("any Snake badge ×2"). Only meaningful on the WANT
+   *  side; the give side is always specific assets. */
+  groups?: BadgeGroup[];
   sol: number;
   gboy: number;
 }
