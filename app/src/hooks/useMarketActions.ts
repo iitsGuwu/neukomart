@@ -359,6 +359,18 @@ export function useMarketActions() {
           toast.error('A swap can request at most 8 items total');
           return;
         }
+        // Each "any badge type" slot carries a Merkle proof (~250-350 bytes) in
+        // the accept transaction. Measured worst case: 2 proofs = 1162 bytes WITH
+        // the lookup table (limit 1232); a 3rd overflows. So cap proof-bearing
+        // slots at 2 so every swap created here can actually be accepted.
+        if (requestedGroups.length > 2) {
+          toast.error('A swap can request at most 2 "any badge type" slots — the proofs won\'t fit in one transaction otherwise. Use specific NFTs or a second swap for more.');
+          return;
+        }
+        if (requestedGroups.length > 0 && requested.length + requestedGroups.length > 3) {
+          toast.error('Too many requested items alongside "any badge type" slots — keep the total to 3 or fewer so the swap can be accepted.');
+          return;
+        }
         let takerPk: PublicKey | null = null;
         if (taker) {
           try {

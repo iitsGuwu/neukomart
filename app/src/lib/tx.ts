@@ -19,9 +19,14 @@ import { getConnection } from './chain';
  *   • pre-flight simulation + a structured preview for the UI
  */
 
-/** Optional persistent lookup table holding the static program accounts.
- *  Create once with `createStaticLookupTable` and set VITE_LOOKUP_TABLE. */
-const STATIC_LUT: string | undefined = import.meta.env.VITE_LOOKUP_TABLE;
+/** Persistent Address Lookup Table holding the static ecosystem accounts
+ *  (program, MPL Core, token programs, $GBOY mint, collections, creators). It
+ *  compresses those ~11 accounts to a 1-byte index each, freeing ~340 bytes so
+ *  large transactions — notably swap accepts carrying multiple Merkle proofs for
+ *  "any badge type" slots — stay under the 1232-byte limit. Public, not secret;
+ *  overridable via VITE_LOOKUP_TABLE. */
+const STATIC_LUT: string | undefined =
+  import.meta.env.VITE_LOOKUP_TABLE || 'CF4t6SuD6kFXuXCtHnHbMUKEyM8aug8V7ncFi6mehKff';
 
 /** NEUKO Market program error codes (Anchor, 6000+) → plain-English reasons.
  *  Kept in sync with the program's MarketError enum / IDL. */
