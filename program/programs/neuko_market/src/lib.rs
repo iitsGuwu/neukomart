@@ -77,6 +77,12 @@ const CORE_TRANSFER_V1_DISCRIMINATOR: u8 = 14;
 /// Max assets allowed on each side of a swap (keeps account size bounded).
 pub const MAX_SWAP_ASSETS: usize = 8;
 
+/// Max Merkle proof depth accepted per trait-group slot. A proof of depth `d`
+/// covers a tree of up to `2^d` leaves, so 24 spans 16M+ assets — far beyond any
+/// real collection — while bounding the per-slot hashing work an accept can
+/// request (defense-in-depth against a self-inflicted compute blow-up).
+pub const MAX_PROOF_DEPTH: usize = 24;
+
 #[program]
 pub mod neuko_market {
     use super::*;
@@ -138,6 +144,16 @@ pub mod neuko_market {
         let listing = &mut ctx.accounts.listing;
         listing.price = new_price;
         listing.currency = new_currency;
+
+        // Emit so the indexer can keep the cached price/currency in sync. Without
+        // this a re-price is invisible to event consumers (the on-chain Listing
+        // PDA is authoritative, but the Redis cache would otherwise go stale).
+        emit!(ListingUpdated {
+            asset: listing.asset,
+            seller: listing.seller,
+            price: new_price,
+            currency: new_currency,
+        });
         Ok(())
     }
 
@@ -357,6 +373,18 @@ pub mod neuko_market {
             MarketError::EmptyRequest
         );
 
+        // Reject duplicate exact-requested assets up front: accept_swap dedups the
+        // delivered set, so a swap requesting the same asset twice could never be
+        // filled — fail fast instead of letting the maker strand rent in it. (n<=8.)
+        for i in 0..args.requested_assets.len() {
+            for j in (i + 1)..args.requested_assets.len() {
+                require!(
+                    args.requested_assets[i] != args.requested_assets[j],
+                    MarketError::DuplicateSwapAsset
+                );
+            }
+        }
+
         // SOL top-up: maker -> swap PDA.
         if args.sol_offered > 0 {
             system_program::transfer(
@@ -448,6 +476,11 @@ pub mod neuko_market {
         let rem = ctx.remaining_accounts;
         require!(rem.len() == (req_n + grp_n + off_n) * 2, MarketError::AccountMismatch);
         require!(proofs.len() == grp_n, MarketError::AccountMismatch);
+        // Bound the hashing work each group slot can request.
+        require!(
+            proofs.iter().all(|p| p.len() <= MAX_PROOF_DEPTH),
+            MarketError::ProofTooLong
+        );
 
         // Track every asset the taker hands over so a single NFT can't be used to
         // fill more than one requested slot.
@@ -1660,6 +1693,14 @@ pub struct Listed {
 }
 
 #[event]
+pub struct ListingUpdated {
+    pub asset: Pubkey,
+    pub seller: Pubkey,
+    pub price: u64,
+    pub currency: Currency,
+}
+
+#[event]
 pub struct Sold {
     pub asset: Pubkey,
     pub seller: Pubkey,
@@ -1757,4 +1798,6 @@ pub enum MarketError {
     DuplicateSwapAsset,
     #[msg("Too many requested slots for a single swap")]
     TooManyGroups,
+    #[msg("A Merkle proof exceeds the maximum allowed depth")]
+    ProofTooLong,
 }

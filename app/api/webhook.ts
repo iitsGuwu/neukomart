@@ -32,6 +32,7 @@ const toUi = (amount: bigint, c: number) => Number(amount) / (c === 1 ? 1e10 : 1
 
 const DISC = {
   Listed: [243, 173, 136, 195, 125, 241, 12, 99],
+  ListingUpdated: [190, 215, 199, 138, 255, 248, 98, 62],
   Sold: [205, 203, 210, 202, 96, 11, 192, 10],
   SwapCreated: [95, 3, 86, 52, 73, 22, 116, 203],
   SwapAccepted: [226, 86, 141, 186, 157, 59, 108, 143],
@@ -66,6 +67,7 @@ class Reader {
 
 type DecodedEvent =
   | { type: 'Listed'; asset: string; seller: string; price: bigint; currency: number }
+  | { type: 'ListingUpdated'; asset: string; seller: string; price: bigint; currency: number }
   | { type: 'Sold'; asset: string; seller: string; buyer: string; price: bigint; currency: number }
   | { type: 'SwapCreated'; swap: string; maker: string }
   | { type: 'SwapAccepted'; swap: string; maker: string; taker: string }
@@ -87,6 +89,9 @@ function decodeEvents(logs: string[]): DecodedEvent[] {
       if (matches(buf, DISC.Listed)) {
         const r = new Reader(buf);
         out.push({ type: 'Listed', asset: r.pubkey(), seller: r.pubkey(), price: r.u64(), currency: r.u8() });
+      } else if (matches(buf, DISC.ListingUpdated)) {
+        const r = new Reader(buf);
+        out.push({ type: 'ListingUpdated', asset: r.pubkey(), seller: r.pubkey(), price: r.u64(), currency: r.u8() });
       } else if (matches(buf, DISC.Sold)) {
         const r = new Reader(buf);
         out.push({ type: 'Sold', asset: r.pubkey(), seller: r.pubkey(), buyer: r.pubkey(), price: r.u64(), currency: r.u8() });
@@ -249,6 +254,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             [e.asset]: { asset: e.asset, seller: e.seller, price: toUi(e.price, e.currency), currency: cur(e.currency), createdAt: now, sig },
           });
           await pushActivity({ id: eventId, kind: 'list', asset: e.asset, price: toUi(e.price, e.currency), currency: cur(e.currency), from: e.seller, time: now, sig });
+        } else if (e.type === 'ListingUpdated') {
+          // Re-price: refresh the cached price/currency in place, no activity row.
+          await redis.hset(KEYS.listings, {
+            [e.asset]: { asset: e.asset, seller: e.seller, price: toUi(e.price, e.currency), currency: cur(e.currency), createdAt: now, sig },
+          });
         } else if (e.type === 'Sold') {
           await redis.hdel(KEYS.listings, e.asset);
           await pushActivity({ id: eventId, kind: 'sale', asset: e.asset, price: toUi(e.price, e.currency), currency: cur(e.currency), from: e.seller, to: e.buyer, time: now, sig });
