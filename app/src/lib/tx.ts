@@ -104,7 +104,10 @@ function simErrorMessage(err: unknown, logs: string[]): string {
   return errStr.slice(0, 200);
 }
 
-/** Median priority fee (micro-lamports/CU) from recent blocks, clamped. */
+/** Priority fee (micro-lamports/CU) from recent blocks, clamped. Uses the 75th
+ *  percentile + a meaningful floor so the transaction lands promptly — a near-
+ *  zero fee leaves it unconfirmed until the blockhash expires ("block height
+ *  exceeded"). At ~200k CU even the 50k floor is only ~0.00001 SOL. */
 export async function getPriorityFee(
   connection: Connection,
   keys: PublicKey[],
@@ -114,11 +117,10 @@ export async function getPriorityFee(
       lockedWritableAccounts: keys.slice(0, 16),
     });
     const fees = recent.map((r) => r.prioritizationFee).filter((f) => f > 0).sort((a, b) => a - b);
-    const median = fees.length ? fees[Math.floor(fees.length / 2)] : 0;
-    // Clamp to a sane range so users never overpay wildly.
-    return Math.min(Math.max(median, 1_000), 1_000_000);
+    const p75 = fees.length ? fees[Math.floor(fees.length * 0.75)] : 0;
+    return Math.min(Math.max(p75, 50_000), 1_000_000);
   } catch {
-    return 10_000;
+    return 50_000;
   }
 }
 
@@ -229,7 +231,22 @@ export async function sendSmart(
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
   const tx = buildV0Message(payer, blockhash, ixs, priority, unitLimit, luts);
   const sig = await wallet.sendTransaction(tx, connection);
-  await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+
+  // A slow wallet approval (the blockhash ages while you review the prompt) or a
+  // lagging RPC can trip "block height exceeded" even when the transaction
+  // actually lands. So if the blockhash-bound confirm fails, poll the signature
+  // status before declaring failure — only give up if it truly never landed.
+  try {
+    await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+  } catch {
+    for (let i = 0; i < 8; i++) {
+      await new Promise((r) => setTimeout(r, 2500));
+      const st = (await connection.getSignatureStatus(sig, { searchTransactionHistory: true })).value;
+      if (st?.err) throw new Error('The transaction failed on-chain. Please try again.');
+      if (st && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) return sig;
+    }
+    throw new Error("The network didn't confirm the transaction in time — it likely expired before landing (try approving in the wallet more quickly). Please try again.");
+  }
   return sig;
 }
 
