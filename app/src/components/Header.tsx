@@ -22,7 +22,7 @@ const NAV = [
 // Same as the default WalletMultiButton labels, but show "Connect" before a
 // wallet is selected (instead of "Select Wallet"); the connected address still
 // shows after connecting.
-const WALLET_LABELS = {
+export const WALLET_LABELS = {
   'change-wallet': 'Change wallet',
   connecting: 'Connecting…',
   'copy-address': 'Copy address',

@@ -16,7 +16,10 @@ export function NeukoLogo({ className }: { className?: string }) {
         className="h-9 w-9 rounded-xl border shadow-glow object-cover"
         style={{ borderColor: 'var(--border-strong)' }}
       />
-      <span className="font-display text-[18px] font-bold tracking-tight lowercase">
+      {/* Wordmark hides on the narrowest phones, where it would collide with the
+          header's right-hand controls (theme/cart/wallet). The mark carries the
+          brand there; it returns from `sm` up. */}
+      <span className="hidden sm:inline font-display text-[18px] font-bold tracking-tight lowercase">
         neuko<span className="text-neon">mart</span>
       </span>
     </Link>
@@ -76,16 +79,19 @@ export function PriceTag({
   );
 }
 
-export function CollectionPill({ collection, className }: { collection: CollectionKey; className?: string }) {
+export function CollectionPill({ collection, compact = false, className }: { collection: CollectionKey; compact?: boolean; className?: string }) {
   const meta = COLLECTIONS[collection];
   const tone =
     collection === 'harmies'
       ? 'bg-harm/15 text-harm border-harm/30'
       : 'bg-neon/15 text-neon border-neon/30';
+  // Compact drops the "G*BOY " prefix and shrinks to match the card's status
+  // badge, so the two never collide on narrow 2-column mobile cards.
+  const label = compact ? meta.name.replace(/^G\*BOY\s+/, '') : meta.name;
   return (
-    <span className={clsx('chip border', tone, className)}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      {meta.name}
+    <span className={clsx('chip border', compact && '!px-2 !py-0.5 !text-[10px]', tone, className)}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current shrink-0" />
+      {label}
     </span>
   );
 }

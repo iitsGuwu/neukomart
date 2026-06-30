@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { BaseWalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { WALLET_LABELS } from '../components/Header';
 import clsx from 'clsx';
 import { Tag, Wallet, Sparkles, Gavel, Gem } from 'lucide-react';
 import { AssetImage, CollectionPill, PriceTag, CurrencyIcon, SectionTitle, EcoBadge, Modal, OriginBadge, originUrl } from '../components/ui';
@@ -70,7 +71,7 @@ export function Portfolio() {
         <h2 className="mt-6 font-display text-2xl font-bold">Connect your wallet</h2>
         <p className="mt-2 text-slate-400">See your Badges, Harmies and $GBOY, then list or swap in a click.</p>
         <div className="mt-6 flex justify-center">
-          <WalletMultiButton />
+          <BaseWalletMultiButton labels={WALLET_LABELS} />
         </div>
       </div>
     );

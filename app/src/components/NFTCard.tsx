@@ -46,7 +46,7 @@ export function MarketCard({
           {listing ? (
             <OriginBadge origin={listing.origin ?? 'neukomart'} compact />
           ) : (
-            <CollectionPill collection={asset.collection} />
+            <CollectionPill collection={asset.collection} compact />
           )}
         </div>
         {!listing && (
