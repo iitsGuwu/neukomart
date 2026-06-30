@@ -4,7 +4,7 @@ import clsx from 'clsx';
 import { X, Zap } from 'lucide-react';
 import { COLLECTIONS, type CollectionKey } from '../lib/constants';
 import { harmieArt, badgeArt } from '../lib/art';
-import { formatAmount, currencyLabel } from '../lib/format';
+import { formatAmount, currencyLabel, compact as compactNum } from '../lib/format';
 import type { Currency, NeukoAsset, MarketOrigin } from '../lib/types';
 
 export function NeukoLogo({ className }: { className?: string }) {
@@ -62,18 +62,24 @@ export function PriceTag({
   amount,
   currency,
   size = 'md',
+  compact = false,
   className,
 }: {
   amount: number;
   currency: Currency;
   size?: 'sm' | 'md' | 'lg';
+  /** Abbreviate very large amounts (e.g. 69.7M) — keeps narrow cards tidy. */
+  compact?: boolean;
   className?: string;
 }) {
   const txt = size === 'lg' ? 'text-xl' : size === 'sm' ? 'text-sm' : 'text-base';
+  const display = compact && amount >= 100_000 ? compactNum(amount) : formatAmount(amount, currency);
   return (
-    <span className={clsx('inline-flex items-center gap-1.5 font-semibold min-w-0', txt, className)}>
+    // `max-w-full` + the number's `min-w-0 truncate` guarantee the amount shrinks
+    // to its container instead of overrunning neighbouring controls (cart / Buy).
+    <span className={clsx('inline-flex items-center gap-1.5 font-semibold min-w-0 max-w-full', txt, className)}>
       <CurrencyIcon currency={currency} size={size === 'lg' ? 20 : 15} />
-      <span className="tabular-nums truncate">{formatAmount(amount, currency)}</span>
+      <span className="tabular-nums truncate min-w-0">{display}</span>
       <span className="text-slate-400 font-medium text-[0.82em] shrink-0">{currencyLabel(currency)}</span>
     </span>
   );

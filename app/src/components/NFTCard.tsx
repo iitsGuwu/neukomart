@@ -60,33 +60,35 @@ export function MarketCard({
         <Link to={`/asset/${asset.id}`} className="font-semibold text-sm truncate block hover:text-neon transition-colors">
           {asset.name}
         </Link>
-        <div className="mt-2 flex flex-wrap items-end justify-between gap-2 min-h-[2.4rem]">
-          {listing ? (
-            <>
-              <div className="min-w-0 flex-1">
-                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">Price</div>
-                <PriceTag amount={listing.price} currency={listing.currency} size="sm" />
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                {/* Sweep cart is native-only: external (ME/Tensor) listings
-                    can't be bought atomically in-app, they redirect. */}
-                {(!listing.origin || listing.origin === 'neukomart') && <CartToggle listing={listing} />}
-                {onBuy && (
-                  <button onClick={() => onBuy(listing)} className="btn-primary !px-3.5 !py-2 text-xs">
-                    Buy
-                  </button>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <span className="text-xs text-slate-500">Not listed</span>
-              <Link to={`/asset/${asset.id}`} className="btn-ghost !px-3 !py-1.5 text-xs">
-                View
-              </Link>
-            </>
-          )}
-        </div>
+        {listing ? (
+          // Stack price over a full-width action row: on a 2-column mobile card
+          // there isn't room for price + cart + Buy side-by-side, so a long
+          // amount used to overrun the buttons. Stacking removes any overlap and
+          // gives the Buy CTA a clean full-width hit area.
+          <div className="mt-2 space-y-2.5">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">Price</div>
+              <PriceTag amount={listing.price} currency={listing.currency} size="sm" compact />
+            </div>
+            <div className="flex items-center gap-1.5">
+              {/* Sweep cart is native-only: external (ME/Tensor) listings
+                  can't be bought atomically in-app, they redirect. */}
+              {(!listing.origin || listing.origin === 'neukomart') && <CartToggle listing={listing} />}
+              {onBuy && (
+                <button onClick={() => onBuy(listing)} className="btn-primary flex-1 !py-2 text-xs">
+                  Buy
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-2 flex items-center justify-between gap-2 min-h-[2.4rem]">
+            <span className="text-xs text-slate-500">Not listed</span>
+            <Link to={`/asset/${asset.id}`} className="btn-ghost !px-3 !py-1.5 text-xs">
+              View
+            </Link>
+          </div>
+        )}
         {/* Fee / origin pill — always shown for listed items */}
         {listing?.origin && (
           <div className="mt-2 pt-2 border-t border-[color:var(--border)]">
