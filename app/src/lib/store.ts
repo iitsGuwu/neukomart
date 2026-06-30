@@ -21,6 +21,10 @@ interface MarketState {
   /** asset id -> owner wallet (local ownership overrides). */
   ownership: Record<string, string>;
   diamondHands: Record<string, boolean>;
+  /** Offer ids the user has dismissed from their "Offers on your items" inbox.
+   *  A denial is local-only: an owner cannot cancel a bidder's escrowed offer
+   *  on-chain (only the bidder can withdraw), so this just hides it for them. */
+  deniedOffers: Record<string, true>;
 }
 
 const STORAGE_KEY = 'neuko-market-state-v4';
@@ -35,6 +39,7 @@ function empty(): MarketState {
     offers: [],
     ownership: {},
     diamondHands: {},
+    deniedOffers: {},
   };
 }
 
@@ -50,8 +55,9 @@ function load(): MarketState {
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as Partial<MarketState>;
-        if (parsed && parsed._v === STATE_VERSION && parsed.diamondHands) {
-          base.diamondHands = parsed.diamondHands;
+        if (parsed && parsed._v === STATE_VERSION) {
+          if (parsed.diamondHands) base.diamondHands = parsed.diamondHands;
+          if (parsed.deniedOffers) base.deniedOffers = parsed.deniedOffers;
         }
       } catch {
         /* ignore malformed JSON */
@@ -70,7 +76,7 @@ function emit() {
       // Persist ONLY user prefs — never the live-derived market snapshot.
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ _v: STATE_VERSION, diamondHands: state.diamondHands }),
+        JSON.stringify({ _v: STATE_VERSION, diamondHands: state.diamondHands, deniedOffers: state.deniedOffers }),
       );
     } catch {
       /* quota / serialization — non-fatal */
@@ -196,6 +202,20 @@ export function addOffer(offer: Offer) {
 export function removeOffer(offerId: string) {
   pendingOffers.set(offerId, { offer: null, at: Date.now() });
   set({ offers: state.offers.filter((o) => o.id !== offerId) });
+}
+
+/** Locally dismiss an incoming offer from the owner's inbox. Does NOT touch the
+ *  on-chain escrow (only the bidder can withdraw); it just hides it for this
+ *  user. Persisted so a denied offer stays hidden across reloads. */
+export function denyOffer(offerId: string) {
+  if (state.deniedOffers[offerId]) return;
+  set({ deniedOffers: { ...state.deniedOffers, [offerId]: true } });
+}
+export function undenyOffer(offerId: string) {
+  if (!state.deniedOffers[offerId]) return;
+  const next = { ...state.deniedOffers };
+  delete next[offerId];
+  set({ deniedOffers: next });
 }
 
 export function resetStore() {

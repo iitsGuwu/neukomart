@@ -9,8 +9,9 @@ import { AssetImage, CollectionPill, PriceTag, CurrencyIcon, SectionTitle, EcoBa
 import { ListDialog } from '../components/dialogs';
 import { useBalances, useMyAssets } from '../hooks/useWalletData';
 import { useMarketActions } from '../hooks/useMarketActions';
-import { useMarketState, toggleDiamondHand } from '../lib/store';
+import { useMarketState, toggleDiamondHand, denyOffer, undenyOffer } from '../lib/store';
 import { formatAmount, shortAddress, timeAgo } from '../lib/format';
+import toast from 'react-hot-toast';
 import type { NeukoAsset } from '../lib/types';
 
 export function Portfolio() {
@@ -57,8 +58,29 @@ export function Portfolio() {
     (o) =>
       o.status === 'open' &&
       o.bidder !== me &&
+      !market.deniedOffers?.[o.id] &&
       ((o.asset && myAssetIds.has(o.asset)) || (!o.asset && myCollections.has(o.collection))),
   );
+
+  // Deny = locally dismiss an incoming offer (an owner can't cancel a bidder's
+  // escrow on-chain). Offer an Undo so an accidental tap is reversible.
+  const handleDeny = (offerId: string) => {
+    denyOffer(offerId);
+    toast((t) => (
+      <span className="flex items-center gap-3 text-sm">
+        Offer hidden from your inbox
+        <button
+          onClick={() => {
+            undenyOffer(offerId);
+            toast.dismiss(t.id);
+          }}
+          className="font-semibold text-neon hover:underline"
+        >
+          Undo
+        </button>
+      </span>
+    ));
+  };
   const fillAssetFor = (o: (typeof market.offers)[number]): NeukoAsset | undefined =>
     o.asset ? assets.find((a) => a.id === o.asset) : assets.find((a) => a.collection === o.collection);
 
@@ -155,11 +177,20 @@ export function Portfolio() {
                           </div>
                         </div>
                       </div>
-                      {fill && (
-                        <button onClick={() => acceptOffer(o.id, fill)} className="btn-primary !py-2 text-xs shrink-0">
-                          Accept
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => handleDeny(o.id)}
+                          title="Hide this offer from your inbox. The bidder keeps their escrow until they withdraw it."
+                          className="btn-ghost !py-2 text-xs text-flare"
+                        >
+                          Deny
                         </button>
-                      )}
+                        {fill && (
+                          <button onClick={() => acceptOffer(o.id, fill)} className="btn-primary !py-2 text-xs">
+                            Accept
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

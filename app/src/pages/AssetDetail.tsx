@@ -7,7 +7,7 @@ import { useHead, ogImageUrl } from '../lib/head';
 import { COLLECTIONS } from '../lib/constants';
 import { AssetImage, CollectionPill, PriceTag, EcoBadge, CurrencyIcon, OriginBadge, FeePill } from '../components/ui';
 import { BuyDialog, ListDialog, MakeOfferDialog } from '../components/dialogs';
-import { useMarketState, ownsAsset } from '../lib/store';
+import { useMarketState, ownsAsset, denyOffer, undenyOffer } from '../lib/store';
 import { useMyAssets, useEcosystemAssets } from '../hooks/useWalletData';
 import { useMarketActions } from '../hooks/useMarketActions';
 import { shortAddress, formatAmount, timeAgo } from '../lib/format';
@@ -39,11 +39,33 @@ export function AssetDetail() {
   const owned = !!owner && !!asset && (mine.some((a) => a.id === asset.id) || ownsAsset(asset.id, owner));
 
   // Offers that apply to this asset: a direct bid, or a collection floor bid.
+  // When you own the asset, offers you've denied are hidden from your view.
   const assetOffers = market.offers.filter(
     (o) =>
       o.status === 'open' &&
+      !(owned && market.deniedOffers?.[o.id]) &&
       (o.asset === asset?.id || (!o.asset && o.collection === asset?.collection)),
   );
+
+  // Deny = locally dismiss an incoming offer (an owner can't cancel a bidder's
+  // escrow on-chain), with an Undo for accidental taps.
+  const handleDeny = (offerId: string) => {
+    denyOffer(offerId);
+    toast((t) => (
+      <span className="flex items-center gap-3 text-sm">
+        Offer hidden from your inbox
+        <button
+          onClick={() => {
+            undenyOffer(offerId);
+            toast.dismiss(t.id);
+          }}
+          className="font-semibold text-neon hover:underline"
+        >
+          Undo
+        </button>
+      </span>
+    ));
+  };
 
   useHead({
     title: asset?.name,
@@ -212,9 +234,18 @@ export function AssetDetail() {
                       </div>
                     </div>
                     {owned ? (
-                      <button onClick={() => acceptOffer(o.id, asset)} className="btn-primary !py-2 text-xs">
-                        Accept
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => handleDeny(o.id)}
+                          title="Hide this offer from your inbox. The bidder keeps their escrow until they withdraw it."
+                          className="btn-ghost !py-2 text-xs text-flare"
+                        >
+                          Deny
+                        </button>
+                        <button onClick={() => acceptOffer(o.id, asset)} className="btn-primary !py-2 text-xs">
+                          Accept
+                        </button>
+                      </div>
                     ) : o.bidder === owner ? (
                       <button onClick={() => cancelOffer(o.id)} className="btn-ghost !py-2 text-xs">
                         Withdraw
