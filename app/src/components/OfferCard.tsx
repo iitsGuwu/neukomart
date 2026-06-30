@@ -75,6 +75,7 @@ export function OfferCard({
   onAccept,
   onCancel,
   onCounter,
+  onRefuse,
 }: {
   offer: SwapOffer;
   mine?: boolean;
@@ -85,6 +86,8 @@ export function OfferCard({
   onAccept?: () => void;
   onCancel?: () => void;
   onCounter?: () => void;
+  /** Refuse an incoming swap — locally hides it from the viewer's list. */
+  onRefuse?: () => void;
 }) {
   const statusTone =
     offer.status === 'open'
@@ -132,6 +135,15 @@ export function OfferCard({
           {onCancel && (
             <button onClick={onCancel} className="btn-ghost !py-2 text-xs">
               Cancel
+            </button>
+          )}
+          {onRefuse && offer.status === 'open' && (
+            <button
+              onClick={onRefuse}
+              title="Refuse this swap to hide it from your list. The maker keeps their escrow until they cancel it."
+              className="btn-ghost !py-2 text-xs text-flare"
+            >
+              Refuse
             </button>
           )}
           {onCounter && offer.status === 'open' && (

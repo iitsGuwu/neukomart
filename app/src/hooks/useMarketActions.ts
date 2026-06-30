@@ -3,7 +3,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PublicKey } from '@solana/web3.js';
 import toast from 'react-hot-toast';
-import { GBOY_MINT, GBOY_DECIMALS, COLLECTIONS, type CollectionKey } from '../lib/constants';
+import { GBOY_MINT, GBOY_DECIMALS, COLLECTIONS, MAX_TRADE_NFTS_PER_SIDE, type CollectionKey } from '../lib/constants';
 import { getConnection } from '../lib/chain';
 import { sendSmart } from '../lib/tx';
 import {
@@ -89,7 +89,7 @@ export function useMarketActions() {
       // ── External listings (ME / Tensor) ────────────────────────────────────
       if (listing.origin === 'magiceden' || listing.origin === 'tensor') {
         if (!validatePrice(listing.price, 'sol')) {
-          toast.error('Invalid listing price — transaction aborted');
+          toast.error('Invalid listing price, transaction aborted');
           return;
         }
 
@@ -135,7 +135,7 @@ export function useMarketActions() {
         try {
           // Reject malformed prices before sending any transaction.
           if (!validatePrice(listing.price, listing.currency)) {
-            toast.error('Invalid listing price — transaction aborted');
+            toast.error('Invalid listing price, transaction aborted');
             return;
           }
           const common = {
@@ -183,7 +183,7 @@ export function useMarketActions() {
         }
         return;
       }
-      toast.error('Purchase not available — NEUKO program not detected on this network');
+      toast.error('Purchase not available, NEUKO program not detected on this network');
     },
     [guard, live, wallet],
   );
@@ -233,7 +233,7 @@ export function useMarketActions() {
         }
         return;
       }
-      toast.error('Listing not available — NEUKO program not detected on this network');
+      toast.error('Listing not available, NEUKO program not detected on this network');
     },
     [guard, live, wallet, owner],
   );
@@ -253,7 +253,7 @@ export function useMarketActions() {
           // be delisted on the originating marketplace.
           if (listing.origin === 'magiceden' || listing.origin === 'tensor') {
             const url = originUrl(listing.origin, listing.asset.id);
-            toast(`This is a ${listing.origin === 'tensor' ? 'Tensor' : 'Magic Eden'} listing — manage it on that marketplace.`, { icon: 'ℹ️' });
+            toast(`This is a ${listing.origin === 'tensor' ? 'Tensor' : 'Magic Eden'} listing, manage it on that marketplace.`, { icon: 'ℹ️' });
             if (url) window.open(url, '_blank', 'noopener,noreferrer');
             return;
           }
@@ -276,7 +276,7 @@ export function useMarketActions() {
             const msg = e instanceof Error ? e.message : String(e);
             if (/already initialized|accountnotinitialized|account not initialized/i.test(msg)) {
               store.removeListing(assetId);
-              toast('That listing was already removed on-chain — cleared it from your view.', { id: toastId, icon: 'ℹ️' });
+              toast('That listing was already removed on-chain, cleared it from your view.', { id: toastId, icon: 'ℹ️' });
             } else {
               toast.error(`Failed: ${msg}`, { id: toastId });
             }
@@ -286,7 +286,7 @@ export function useMarketActions() {
         }
         return;
       }
-      toast.error('Delisting not available — NEUKO program not detected on this network');
+      toast.error('Delisting not available, NEUKO program not detected on this network');
     },
     [guard, live, market.listings, wallet],
   );
@@ -301,7 +301,7 @@ export function useMarketActions() {
     ) => {
       if (!guard()) return;
       if (!live) {
-        toast.error('Swaps need the NEUKO program — connect a wallet on mainnet');
+        toast.error('Swaps need the NEUKO program, connect a wallet on mainnet');
         return;
       }
       try {
@@ -319,7 +319,7 @@ export function useMarketActions() {
         // frozen, just escrowed — it's released by the cancels above.)
         const frozenGive = give.assets.find((a) => a.frozen && !escrowedByMe.has(a.id));
         if (frozenGive) {
-          toast.error(`${frozenGive.name} is currently listed — delist it before swapping it.`);
+          toast.error(`${frozenGive.name} is currently listed, delist it before swapping it.`);
           return;
         }
         const offered = give.assets.map((a) => ({ asset: new PublicKey(a.id), collection: a.collection }));
@@ -336,7 +336,7 @@ export function useMarketActions() {
         for (const g of want.groups ?? []) {
           const pubkeys = byEmblem.get(g.emblem) ?? [];
           if (pubkeys.length === 0) {
-            toast.error(`No ${g.emblem} badges found in the ecosystem — try again once assets load.`);
+            toast.error(`No ${g.emblem} badges found in the ecosystem, try again once assets load.`);
             return;
           }
           const root = merkleRoot(pubkeys);
@@ -351,12 +351,12 @@ export function useMarketActions() {
           toast.error('Request at least one asset, badge type, SOL or $GBOY');
           return;
         }
-        if (offered.length > 8) {
-          toast.error('A swap can offer at most 8 assets');
+        if (offered.length > MAX_TRADE_NFTS_PER_SIDE) {
+          toast.error(`A swap can offer at most ${MAX_TRADE_NFTS_PER_SIDE} NFTs`);
           return;
         }
-        if (requested.length + requestedGroups.length > 8) {
-          toast.error('A swap can request at most 8 items total');
+        if (requested.length + requestedGroups.length > MAX_TRADE_NFTS_PER_SIDE) {
+          toast.error(`A swap can request at most ${MAX_TRADE_NFTS_PER_SIDE} NFTs`);
           return;
         }
         // Each "any badge type" slot carries a Merkle proof (~250-350 bytes) in
@@ -364,11 +364,11 @@ export function useMarketActions() {
         // the lookup table (limit 1232); a 3rd overflows. So cap proof-bearing
         // slots at 2 so every swap created here can actually be accepted.
         if (requestedGroups.length > 2) {
-          toast.error('A swap can request at most 2 "any badge type" slots — the proofs won\'t fit in one transaction otherwise. Use specific NFTs or a second swap for more.');
+          toast.error('A swap can request at most 2 "any badge type" slots, the proofs won\'t fit in one transaction otherwise. Use specific NFTs or a second swap for more.');
           return;
         }
         if (requestedGroups.length > 0 && requested.length + requestedGroups.length > 3) {
-          toast.error('Too many requested items alongside "any badge type" slots — keep the total to 3 or fewer so the swap can be accepted.');
+          toast.error('Too many requested items alongside "any badge type" slots, keep the total to 3 or fewer so the swap can be accepted.');
           return;
         }
         let takerPk: PublicKey | null = null;
@@ -420,8 +420,8 @@ export function useMarketActions() {
           }),
         );
         await toast.promise(sendSmart(wallet, ixs), {
-          loading: conflicts.length ? 'Submitting counter — replacing your previous offer…' : 'Creating swap offer on-chain…',
-          success: conflicts.length ? 'Counter sent — previous offer replaced.' : 'Swap offer created — your assets are escrowed!',
+          loading: conflicts.length ? 'Submitting counter, replacing your previous offer…' : 'Creating swap offer on-chain…',
+          success: conflicts.length ? 'Counter sent, previous offer replaced.' : 'Swap offer created, your assets are escrowed!',
           error: (e) => `Failed: ${e.message ?? e}`,
         });
         refreshSwaps(); // show it under "My offers"
@@ -443,7 +443,7 @@ export function useMarketActions() {
     ) => {
       if (!guard()) return;
       if (!live) {
-        toast.error('Swaps need the NEUKO program — connect a wallet on mainnet');
+        toast.error('Swaps need the NEUKO program, connect a wallet on mainnet');
         return;
       }
       if (swap.taker && swap.taker !== owner) {
@@ -468,7 +468,7 @@ export function useMarketActions() {
       // delivered — surface that before sending.
       const frozenWant = swap.want.assets.find((a) => a.frozen && !escrowedByMe.has(a.id));
       if (frozenWant) {
-        toast.error(`${frozenWant.name} is listed — delist it before accepting this swap.`);
+        toast.error(`${frozenWant.name} is listed, delist it before accepting this swap.`);
         return;
       }
 
@@ -493,7 +493,7 @@ export function useMarketActions() {
         for (const root of swap.groupRoots) {
           const emblem = rootToEmblem.get(root);
           if (!emblem) {
-            toast.error('Could not resolve a requested badge type — try again once assets load.');
+            toast.error('Could not resolve a requested badge type, try again once assets load.');
             return;
           }
           const pubkeys = byEmblem.get(emblem) ?? [];
@@ -541,9 +541,9 @@ export function useMarketActions() {
 
         await toast.promise(sendSmart(wallet, ixs), {
           loading: conflicts.length
-            ? 'Accepting swap — replacing your original offer…'
+            ? 'Accepting swap, replacing your original offer…'
             : 'Accepting swap on-chain…',
-          success: 'Swap accepted — assets exchanged!',
+          success: 'Swap accepted, assets exchanged!',
           error: (e) => `Failed: ${e.message ?? e}`,
         });
         refreshSwaps();
@@ -558,7 +558,7 @@ export function useMarketActions() {
     async (swap: OnChainSwap) => {
       if (!guard()) return;
       if (!live) {
-        toast.error('Swaps need the NEUKO program — connect a wallet on mainnet');
+        toast.error('Swaps need the NEUKO program, connect a wallet on mainnet');
         return;
       }
       if (swap.maker !== owner) {
@@ -582,7 +582,7 @@ export function useMarketActions() {
         ixs.push(prog.buildCancelSwapIx({ maker: wallet.publicKey!, nonce, offered, usesGboy }));
         await toast.promise(sendSmart(wallet, ixs), {
           loading: 'Cancelling swap on-chain…',
-          success: 'Swap cancelled — your assets are back.',
+          success: 'Swap cancelled, your assets are back.',
           error: (e) => `Failed: ${e.message ?? e}`,
         });
         refreshSwaps();
@@ -653,7 +653,7 @@ export function useMarketActions() {
         }
         return;
       }
-      toast.error('Offers not available — NEUKO program not detected on this network');
+      toast.error('Offers not available, NEUKO program not detected on this network');
     },
     [guard, live, wallet, owner],
   );
@@ -692,7 +692,7 @@ export function useMarketActions() {
         }
         return;
       }
-      toast.error('Cancellation not available — NEUKO program not detected on this network');
+      toast.error('Cancellation not available, NEUKO program not detected on this network');
     },
     [guard, live, wallet],
   );
@@ -766,7 +766,7 @@ export function useMarketActions() {
         }
         return;
       }
-      toast.error('Accepting offers not available — NEUKO program not detected on this network');
+      toast.error('Accepting offers not available, NEUKO program not detected on this network');
     },
     [guard, live, wallet],
   );
@@ -780,7 +780,7 @@ export function useMarketActions() {
       const listings = allListings.filter((l) => !l.origin || l.origin === 'neukomart');
       const skipped = allListings.length - listings.length;
       if (skipped > 0) {
-        toast(`${skipped} Magic Eden/Tensor item${skipped > 1 ? 's' : ''} skipped — buy those on their marketplace.`, { icon: 'ℹ️' });
+        toast(`${skipped} Magic Eden/Tensor item${skipped > 1 ? 's' : ''} skipped, buy those on their marketplace.`, { icon: 'ℹ️' });
       }
       if (listings.length === 0) return;
       if (live) {
@@ -827,7 +827,7 @@ export function useMarketActions() {
         );
         return;
       }
-      toast.error('Sweep purchase not available — NEUKO program not detected on this network');
+      toast.error('Sweep purchase not available, NEUKO program not detected on this network');
     },
     [guard, live, wallet],
   );

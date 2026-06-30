@@ -77,7 +77,7 @@ async function dasCall<T>(method: string, params: unknown): Promise<T> {
         body: JSON.stringify({ jsonrpc: '2.0', id: 'neuko', method, params }),
       });
     } catch (e) {
-      lastErr = e; // network error — retry
+      lastErr = e; // network error, retry
       await new Promise((r) => setTimeout(r, 400 * 2 ** attempt));
       continue;
     }
@@ -96,7 +96,7 @@ async function dasCall<T>(method: string, params: unknown): Promise<T> {
 function normalize(a: DasAsset): NeukoAsset | null {
   const group = a.grouping?.find((g) => g.group_key === 'collection');
   const meta = collectionForAddress(group?.group_value);
-  if (!meta) return null; // outside the ecosystem — ignored by design
+  if (!meta) return null; // outside the ecosystem, ignored by design
   const image =
     a.content?.links?.image ||
     a.content?.files?.[0]?.cdn_uri ||

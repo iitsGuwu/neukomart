@@ -37,7 +37,7 @@ export function Footer() {
           <div>
             <div className="label mb-3">How it works</div>
             <ul className="space-y-2 text-sm text-slate-400">
-              <li>Non-custodial — your keys, your assets.</li>
+              <li>Non-custodial: your keys, your assets.</li>
               <li>Zero protocol fees. You pay only Solana gas.</li>
               <li>Restricted to Badges, Harmies &amp; $GBOY by design.</li>
             </ul>
@@ -63,7 +63,7 @@ export function Footer() {
             <FootLink href="https://github.com/iitsGuwu/neukomart">
               View the code on GitHub
             </FootLink>
-            {' '}— audit it, fork it, contribute.
+            . Audit it, fork it, contribute.
           </p>
           <span>Built on Solana · Metaplex Core</span>
         </div>

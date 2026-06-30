@@ -69,7 +69,7 @@ export function AssetDetail() {
 
   useHead({
     title: asset?.name,
-    description: asset ? `${asset.name} — ${COLLECTIONS[asset.collection].name} on NEUKO Market. Feeless trading.` : undefined,
+    description: asset ? `${asset.name} · ${COLLECTIONS[asset.collection].name} on NEUKO Market. Feeless trading.` : undefined,
     image: asset
       ? ogImageUrl({
           name: asset.name,

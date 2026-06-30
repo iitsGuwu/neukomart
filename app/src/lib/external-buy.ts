@@ -17,7 +17,7 @@ import type { Listing } from './types';
 
 export class ExternalBuyNotConfigured extends Error {
   constructor(public readonly platform: 'magiceden' | 'tensor') {
-    super(`${platform} buy not configured — redirect instead`);
+    super(`${platform} buy not configured, redirect instead`);
     this.name = 'ExternalBuyNotConfigured';
   }
 }

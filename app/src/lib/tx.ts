@@ -67,11 +67,11 @@ function simErrorMessage(err: unknown, logs: string[]): string {
 
   // Insufficient SOL — for fees or for the rent the program must pay on init.
   if (/insufficient (lamports|funds)|insufficientfunds(forrent)?|debit an account but found no record/.test(haystack)) {
-    return 'Not enough funds — add more SOL to your wallet to cover the network fee and account rent.';
+    return 'Not enough funds, add more SOL to your wallet to cover the network fee and account rent.';
   }
   // The fee payer or a referenced account does not exist on-chain.
   if (/accountnotfound/.test(haystack)) {
-    return 'Not enough funds, or a required account is missing — make sure your wallet has SOL, and that this is a NEUKO-native listing (Magic Eden / Tensor items are managed on those marketplaces).';
+    return 'Not enough funds, or a required account is missing, make sure your wallet has SOL, and that this is a NEUKO-native listing (Magic Eden / Tensor items are managed on those marketplaces).';
   }
 
   // Decode a custom program error code: structured ({"Custom":N}) or log text
@@ -94,7 +94,7 @@ function simErrorMessage(err: unknown, logs: string[]): string {
   // A custom error from a CPI (e.g. Metaplex Core) with no Anchor message.
   if (code != null) {
     return new RegExp(`${MPL_CORE}[\\s\\S]*?custom program error`, 'i').test(logText)
-      ? `This NFT is already listed (it carries marketplace delegates) — likely on Magic Eden or Tensor. Delist it there first, then list on NEUKO.`
+      ? `This NFT is already listed (it carries marketplace delegates), likely on Magic Eden or Tensor. Delist it there first, then list on NEUKO.`
       : `On-chain program error (code 0x${code.toString(16)}).`;
   }
 
@@ -208,7 +208,7 @@ export async function sendSmart(
   // Catch it up front with a clear, actionable message.
   const balance = await connection.getBalance(payer, 'confirmed').catch(() => null);
   if (balance === 0) {
-    throw new Error('Not enough funds — your wallet has no SOL. Add SOL to cover the network fee and account rent (~0.01 SOL), then try again.');
+    throw new Error('Not enough funds, your wallet has no SOL. Add SOL to cover the network fee and account rent (~0.01 SOL), then try again.');
   }
 
   const keys = uniqueKeys(ixs);
@@ -219,7 +219,7 @@ export async function sendSmart(
   try {
     sim = await estimateUnits(connection, payer, ixs, priority, luts);
   } catch {
-    sim = null; // simulation unavailable — proceed without pre-flight
+    sim = null; // simulation unavailable, proceed without pre-flight
   }
 
   let unitLimit = 400_000;
@@ -245,7 +245,7 @@ export async function sendSmart(
       if (st?.err) throw new Error('The transaction failed on-chain. Please try again.');
       if (st && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) return sig;
     }
-    throw new Error("The network didn't confirm the transaction in time — it likely expired before landing (try approving in the wallet more quickly). Please try again.");
+    throw new Error("The network didn't confirm the transaction in time, it likely expired before landing (try approving in the wallet more quickly). Please try again.");
   }
   return sig;
 }

@@ -270,7 +270,7 @@ export function Portfolio() {
                     ) : ext ? (
                       <button
                         onClick={() => delistElsewhere(a, ext)}
-                        title={`This NFT is listed on ${ext === 'tensor' ? 'Tensor' : 'Magic Eden'} — delist it there`}
+                        title={`This NFT is listed on ${ext === 'tensor' ? 'Tensor' : 'Magic Eden'}; delist it there`}
                         className="btn-ghost flex-1 !py-1.5 text-xs text-flare"
                       >
                         <Tag size={13} /> Delist on {ext === 'tensor' ? 'Tensor' : 'ME'}
@@ -278,7 +278,7 @@ export function Portfolio() {
                     ) : locked ? (
                       <div
                         className="flex-1 flex justify-center items-center"
-                        title="This NFT is frozen — it's listed or locked on a marketplace (Magic Eden, Tensor, or a NEUKO listing still confirming). Delist it there to free it."
+                        title="This NFT is frozen; it's listed or locked on a marketplace (Magic Eden, Tensor, or a NEUKO listing still confirming). Delist it there to free it."
                       >
                         <EcoBadge tone="harm">Locked</EcoBadge>
                       </div>

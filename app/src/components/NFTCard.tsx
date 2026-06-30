@@ -89,7 +89,7 @@ export function MarketCard({
             </Link>
           </div>
         )}
-        {/* Fee / origin pill — always shown for listed items */}
+        {/* Fee / origin pill, always shown for listed items */}
         {listing?.origin && (
           <div className="mt-2 pt-2 border-t border-[color:var(--border)]">
             <FeePill origin={listing.origin} />

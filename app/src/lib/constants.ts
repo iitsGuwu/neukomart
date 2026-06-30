@@ -43,6 +43,11 @@ export const GBOY_DECIMALS = 10;
 export const GBOY_SYMBOL = '$GBOY';
 export const SOL_DECIMALS = 9;
 
+/** Max NFTs allowed on each side of a swap (offered, and requested exact+group
+ *  combined). Tokens (SOL/$GBOY) are uncapped. Mirrors the program's
+ *  MAX_TRADE_NFTS_PER_SIDE — keep the two in sync. */
+export const MAX_TRADE_NFTS_PER_SIDE = 5;
+
 export type CollectionKey = 'badges' | 'harmies';
 
 export interface CollectionMeta {

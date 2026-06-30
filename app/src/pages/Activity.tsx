@@ -47,7 +47,7 @@ export function Activity() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 sm:px-6 py-10">
-      <SectionTitle kicker="Activity" title="Ecosystem feed" subtitle="Listings, sales and swaps across Badges & Harmies — plus volume and floor analytics." />
+      <SectionTitle kicker="Activity" title="Ecosystem feed" subtitle="Listings, sales and swaps across Badges & Harmies, plus volume and floor analytics." />
 
       {/* view toggle */}
       <div className="flex items-center gap-2 mb-6">
@@ -196,7 +196,7 @@ export function Activity() {
           <p className="mt-4 text-xs text-slate-500 text-center">
             {real
               ? `Built from real sales indexed over the last ${range} days; floor anchors to the live listing floor.`
-              : 'No sales recorded in this window yet — the curves are modelled and anchored to the live floor until trade history accrues.'}
+              : 'No sales recorded in this window yet. The curves are modelled and anchored to the live floor until trade history accrues.'}
           </p>
         </>
       )}

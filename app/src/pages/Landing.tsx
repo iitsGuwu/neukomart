@@ -184,7 +184,7 @@ export function Landing() {
             {
               icon: ShieldCheck,
               t: 'Truly feeless',
-              d: 'The protocol takes nothing. Sellers keep 100% of every sale — you only ever pay Solana network gas.',
+              d: 'The protocol takes nothing. Sellers keep 100% of every sale, paying only Solana network gas.',
               tone: 'text-gboy',
             },
             {

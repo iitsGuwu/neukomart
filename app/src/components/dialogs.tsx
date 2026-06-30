@@ -77,7 +77,7 @@ export function BuyDialog({ listing, onClose }: { listing: Listing | null; onClo
         <div className={clsx('mt-3 text-sm flex items-center gap-2', enough ? 'text-slate-400' : 'text-flare')}>
           <CurrencyIcon currency={listing.currency} size={14} />
           Balance: {formatAmount(balance, listing.currency)} {listing.currency.toUpperCase()}
-          {!enough && ' — insufficient'}
+          {!enough && ' · insufficient'}
         </div>
       )}
 
@@ -200,7 +200,7 @@ export function ListDialog({ asset, onClose }: { asset: NeukoAsset | null; onClo
       <div className="mt-4 rounded-xl bg-gboy/5 border border-gboy/20 px-3.5 py-2.5 text-xs text-gboy flex items-start gap-2">
         <ShieldCheck size={14} className="mt-0.5 shrink-0" />
         <span>
-          <b>Escrowless</b> — the NFT stays in your wallet (frozen) until it sells. 0% marketplace fees (5% creator royalties apply).
+          <b>Escrowless</b>: the NFT stays in your wallet (frozen) until it sells. 0% marketplace fees (5% creator royalties apply).
         </span>
       </div>
 
@@ -298,7 +298,7 @@ export function MakeOfferDialog({
         {balance != null && (
           <div className={clsx('mt-2 text-xs', enough ? 'text-slate-500' : 'text-flare')}>
             Balance: {formatAmount(balance, currency)} {currency.toUpperCase()}
-            {!enough && ' — insufficient'}
+            {!enough && ' · insufficient'}
           </div>
         )}
       </div>

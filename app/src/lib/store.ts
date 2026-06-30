@@ -25,6 +25,9 @@ interface MarketState {
    *  A denial is local-only: an owner cannot cancel a bidder's escrowed offer
    *  on-chain (only the bidder can withdraw), so this just hides it for them. */
   deniedOffers: Record<string, true>;
+  /** Swap ids the user has refused from their incoming swap list. Local-only for
+   *  the same reason — only the maker can cancel their swap escrow on-chain. */
+  deniedSwaps: Record<string, true>;
 }
 
 const STORAGE_KEY = 'neuko-market-state-v4';
@@ -40,6 +43,7 @@ function empty(): MarketState {
     ownership: {},
     diamondHands: {},
     deniedOffers: {},
+    deniedSwaps: {},
   };
 }
 
@@ -58,6 +62,7 @@ function load(): MarketState {
         if (parsed && parsed._v === STATE_VERSION) {
           if (parsed.diamondHands) base.diamondHands = parsed.diamondHands;
           if (parsed.deniedOffers) base.deniedOffers = parsed.deniedOffers;
+          if (parsed.deniedSwaps) base.deniedSwaps = parsed.deniedSwaps;
         }
       } catch {
         /* ignore malformed JSON */
@@ -76,7 +81,7 @@ function emit() {
       // Persist ONLY user prefs — never the live-derived market snapshot.
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ _v: STATE_VERSION, diamondHands: state.diamondHands, deniedOffers: state.deniedOffers }),
+        JSON.stringify({ _v: STATE_VERSION, diamondHands: state.diamondHands, deniedOffers: state.deniedOffers, deniedSwaps: state.deniedSwaps }),
       );
     } catch {
       /* quota / serialization — non-fatal */
@@ -216,6 +221,19 @@ export function undenyOffer(offerId: string) {
   const next = { ...state.deniedOffers };
   delete next[offerId];
   set({ deniedOffers: next });
+}
+
+/** Refuse an incoming swap: locally hide it (the maker's escrow is untouched —
+ *  only the maker can cancel it on-chain). Persisted so it stays hidden. */
+export function denySwap(swapId: string) {
+  if (state.deniedSwaps[swapId]) return;
+  set({ deniedSwaps: { ...state.deniedSwaps, [swapId]: true } });
+}
+export function undenySwap(swapId: string) {
+  if (!state.deniedSwaps[swapId]) return;
+  const next = { ...state.deniedSwaps };
+  delete next[swapId];
+  set({ deniedSwaps: next });
 }
 
 export function resetStore() {

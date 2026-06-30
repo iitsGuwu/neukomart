@@ -74,8 +74,15 @@ pub const MPL_CORE_PROGRAM: Pubkey = pubkey!("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94
 /// MPL Core `TransferV1` instruction discriminator (single byte).
 const CORE_TRANSFER_V1_DISCRIMINATOR: u8 = 14;
 
-/// Max assets allowed on each side of a swap (keeps account size bounded).
+/// Account-layout cap: the on-chain Vecs are sized for this many assets per side.
+/// Kept at 8 for storage-layout stability across upgrades.
 pub const MAX_SWAP_ASSETS: usize = 8;
+
+/// Trade-policy cap: the maximum number of NFTs allowed on EACH side of a swap
+/// (offered, and requested exact + group slots combined). SOL / $GBOY top-ups are
+/// uncapped. This is stricter than the account-layout cap and is the limit the
+/// program actually enforces on new swaps.
+pub const MAX_TRADE_NFTS_PER_SIDE: usize = 5;
 
 /// Max Merkle proof depth accepted per trait-group slot. A proof of depth `d`
 /// covers a tree of up to `2^d` leaves, so 24 spans 16M+ assets — far beyond any
@@ -317,16 +324,16 @@ pub mod neuko_market {
         nonce: u64,
         args: SwapArgs,
     ) -> Result<()> {
+        // Trade-policy cap: at most 5 NFTs offered, and at most 5 requested
+        // (exact + "any of type" group slots combined). Tokens are uncapped.
         require!(
-            args.offered_count as usize <= MAX_SWAP_ASSETS
-                && args.requested_assets.len() <= MAX_SWAP_ASSETS,
+            args.offered_count as usize <= MAX_TRADE_NFTS_PER_SIDE,
             MarketError::TooManyAssets
         );
         // The taker must deliver one asset per requested slot (exact + group), so
-        // keep the total bounded for account size and compute.
+        // keep the requested total bounded too.
         require!(
-            args.requested_groups.len() <= MAX_SWAP_ASSETS
-                && args.requested_assets.len() + args.requested_groups.len() <= MAX_SWAP_ASSETS,
+            args.requested_assets.len() + args.requested_groups.len() <= MAX_TRADE_NFTS_PER_SIDE,
             MarketError::TooManyGroups
         );
         require!(
@@ -1776,7 +1783,7 @@ pub enum MarketError {
     NotDesignatedTaker,
     #[msg("Provided asset does not match the expected asset")]
     AssetMismatch,
-    #[msg("Too many assets for a single swap")]
+    #[msg("A swap may offer at most 5 NFTs")]
     TooManyAssets,
     #[msg("A swap must offer at least one asset, SOL or $GBOY")]
     EmptyOffer,
@@ -1796,7 +1803,7 @@ pub enum MarketError {
     InvalidMerkleProof,
     #[msg("The same asset cannot be used to fill more than one requested slot")]
     DuplicateSwapAsset,
-    #[msg("Too many requested slots for a single swap")]
+    #[msg("A swap may request at most 5 NFTs")]
     TooManyGroups,
     #[msg("A Merkle proof exceeds the maximum allowed depth")]
     ProofTooLong,

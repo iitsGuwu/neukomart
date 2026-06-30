@@ -11,8 +11,13 @@ import { useMyAssets, useEcosystemAssets, useSwaps, useAssetsOf } from '../hooks
 import { shortAddress } from '../lib/format';
 import { useMarketActions } from '../hooks/useMarketActions';
 import { badgePubkeysByEmblem, badgeRepByEmblem } from '../lib/merkle';
+import { useMarketState, denySwap, undenySwap } from '../lib/store';
+import { MAX_TRADE_NFTS_PER_SIDE } from '../lib/constants';
 import type { OnChainSwap } from '../lib/swaps';
 import type { BadgeGroup, NeukoAsset, SwapSide } from '../lib/types';
+
+const nftCount = (side: SwapSide): number =>
+  side.assets.length + (side.groups ?? []).reduce((n, g) => n + g.count, 0);
 
 const empty: SwapSide = { assets: [], sol: 0, gboy: 0 };
 
@@ -22,6 +27,7 @@ export function SwapStudio() {
   const { assets: ecosystem } = useEcosystemAssets();
   const { data: swaps = [] } = useSwaps();
   const { createSwap, acceptSwap, cancelSwap } = useMarketActions();
+  const market = useMarketState();
 
   const [give, setGive] = useState<SwapSide>(empty);
   const [want, setWant] = useState<SwapSide>(empty);
@@ -70,8 +76,34 @@ export function SwapStudio() {
       toast.error('Add something to both sides of the trade');
       return;
     }
+    // Trade-policy cap: at most 5 NFTs per side (tokens are uncapped). The
+    // program enforces this too; we block here for a clean message.
+    if (nftCount(give) > MAX_TRADE_NFTS_PER_SIDE || nftCount(want) > MAX_TRADE_NFTS_PER_SIDE) {
+      toast.error(`A swap allows at most ${MAX_TRADE_NFTS_PER_SIDE} NFTs per side`);
+      return;
+    }
     await createSwap(give, want, taker.trim() || undefined, outgoingOffers, ecosystem);
     resetBuilder();
+  };
+
+  // Refuse an incoming swap: hide it locally (we can't cancel the maker's
+  // escrow on-chain). Undo guards an accidental tap.
+  const handleRefuse = (swapId: string) => {
+    denySwap(swapId);
+    toast((t) => (
+      <span className="flex items-center gap-3 text-sm">
+        Swap refused
+        <button
+          onClick={() => {
+            undenySwap(swapId);
+            toast.dismiss(t.id);
+          }}
+          className="font-semibold text-neon hover:underline"
+        >
+          Undo
+        </button>
+      </span>
+    ));
   };
 
   // Prefill the builder with the inverse of an offer to negotiate it.
@@ -81,13 +113,20 @@ export function SwapStudio() {
     setTaker(offer.maker);
     setCounterId(offer.id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    toast(`Countering — adjust the terms and submit`, { icon: '↔️' });
+    toast(`Countering: adjust the terms and submit`, { icon: '↔️' });
   };
 
+  // A swap is hidden from me if I've refused it, or if it requests an asset I've
+  // Diamond-Handed (DH locks an asset against incoming swap requests).
+  const dh = market.diamondHands ?? {};
+  const refused = market.deniedSwaps ?? {};
+  const requestsMyDiamondHand = (s: OnChainSwap) => (s.want.assets ?? []).some((a) => dh[a.id]);
+  const visibleToMe = (s: OnChainSwap) => !refused[s.id] && !requestsMyDiamondHand(s);
+
   // Public board: only swaps open to anyone (no locked counterparty).
-  const openOffers = swaps.filter((s) => s.status === 'open' && s.maker !== me && !s.taker);
+  const openOffers = swaps.filter((s) => s.status === 'open' && s.maker !== me && !s.taker && visibleToMe(s));
   // Swaps a maker locked specifically TO me — I see them as incoming offers.
-  const incomingOffers = swaps.filter((s) => s.status === 'open' && s.maker !== me && s.taker === me);
+  const incomingOffers = swaps.filter((s) => s.status === 'open' && s.maker !== me && s.taker === me && visibleToMe(s));
   // Swaps I created.
   const outgoingOffers = swaps.filter((s) => s.maker === me);
   // "My offers" = incoming (locked to me, I can accept) + my own outgoing.
@@ -105,7 +144,7 @@ export function SwapStudio() {
         <div className="mb-4 panel p-3.5 flex items-center justify-between gap-3 border border-flare/30 bg-flare/[0.06]">
           <span className="text-sm text-slate-300 flex items-center gap-2">
             <ArrowRightLeft size={15} className="text-flare" />
-            Countering an offer — the terms are pre-filled with the inverse. Adjust and submit.
+            Countering an offer. The terms are pre-filled with the inverse. Adjust and submit.
           </span>
           <button onClick={resetBuilder} className="btn-ghost !py-1.5 text-xs">
             Clear
@@ -166,7 +205,7 @@ export function SwapStudio() {
             <EcoBadge tone="harm">Escrow-backed</EcoBadge>
           </div>
           <span className="text-slate-400">
-            Requests lock exact NFTs — set a counterparty to pick from their wallet, or request a specific asset anyone holding it can fill.
+            Requests lock exact NFTs. Set a counterparty to pick from their wallet, or request a specific asset anyone holding it can fill.
           </span>
         </div>
       </div>
@@ -212,7 +251,7 @@ export function SwapStudio() {
             <div className="space-y-6">
               {incomingOffers.length > 0 && (
                 <div>
-                  <div className="label mb-3 text-neon">Incoming — locked to you ({incomingOffers.length})</div>
+                  <div className="label mb-3 text-neon">Incoming · locked to you ({incomingOffers.length})</div>
                   <div className="grid md:grid-cols-2 gap-4">
                     {incomingOffers.map((o) => (
                       <OfferCard
@@ -222,6 +261,7 @@ export function SwapStudio() {
                         repByEmblem={repByEmblem}
                         onAccept={() => acceptSwap(o, outgoingOffers, ecosystem, mine)}
                         onCounter={() => startCounter(o)}
+                        onRefuse={() => handleRefuse(o.id)}
                       />
                     ))}
                   </div>
@@ -258,6 +298,7 @@ export function SwapStudio() {
         }
         pool={picker === 'give' ? mine : wantPool}
         ecosystem={ecosystem}
+        maxAssets={MAX_TRADE_NFTS_PER_SIDE}
         selectedIds={(picker === 'give' ? give : want).assets.map((a) => a.id)}
         selectedGroups={picker === 'want' ? want.groups ?? [] : []}
         emptyHint={
@@ -323,7 +364,7 @@ function SwapSidePanel({
             </button>
           </div>
         ))}
-        {/* "any holder of this badge type" slots — shown with the real artwork. */}
+        {/* "any holder of this badge type" slots, shown with the real artwork. */}
         {groups.map((g) => {
           const rep = repByEmblem?.get(g.emblem);
           return (
@@ -425,6 +466,7 @@ function AssetPickerModal({
   title,
   pool,
   ecosystem,
+  maxAssets,
   selectedIds,
   selectedGroups,
   emptyHint,
@@ -437,6 +479,8 @@ function AssetPickerModal({
   pool: NeukoAsset[];
   /** Full ecosystem — badge types ("any holder") are derived from this. */
   ecosystem: NeukoAsset[];
+  /** Max NFTs selectable on this side (offered, or requested exact+group). */
+  maxAssets: number;
   selectedIds: string[];
   selectedGroups: BadgeGroup[];
   emptyHint: string;
@@ -483,24 +527,37 @@ function AssetPickerModal({
     .filter((a) => a.name.toLowerCase().includes(filter.toLowerCase()))
     .slice(0, 120);
 
+  const groupTotal = Object.values(selGroups).reduce((a, b) => a + b, 0);
+  const totalSelected = Object.keys(sel).length + groupTotal;
+  const atCap = totalSelected >= maxAssets;
+
   const toggle = (a: NeukoAsset) =>
     setSel((s) => {
       const n = { ...s };
-      if (n[a.id]) delete n[a.id];
-      else n[a.id] = a;
+      if (n[a.id]) {
+        delete n[a.id];
+        return n;
+      }
+      // Adding — enforce the per-side NFT cap (specific assets + group slots).
+      if (Object.keys(s).length + groupTotal >= maxAssets) {
+        toast.error(`A swap allows at most ${maxAssets} NFTs per side`);
+        return s;
+      }
+      n[a.id] = a;
       return n;
     });
 
   const setGroupQty = (emblem: string, qty: number) =>
     setSelGroups((s) => {
+      // Cap the requested quantity so the side never exceeds maxAssets.
+      const others = Object.entries(s).reduce((sum, [e, c]) => (e === emblem ? sum : sum + c), 0);
+      const room = Math.max(0, maxAssets - Object.keys(sel).length - others);
+      const capped = Math.min(qty, room);
       const n = { ...s };
-      if (qty <= 0) delete n[emblem];
-      else n[emblem] = qty;
+      if (capped <= 0) delete n[emblem];
+      else n[emblem] = capped;
       return n;
     });
-
-  const groupTotal = Object.values(selGroups).reduce((a, b) => a + b, 0);
-  const totalSelected = Object.keys(sel).length + groupTotal;
 
   const handleConfirm = () =>
     onConfirm(
@@ -522,10 +579,10 @@ function AssetPickerModal({
         <div className="py-12 text-center text-slate-400">{emptyHint}</div>
       ) : (
         <div className="max-h-[50vh] overflow-y-auto pr-1 space-y-4">
-          {/* Badge types — any holder of this emblem can fill the slot. */}
+          {/* Badge types, any holder of this emblem can fill the slot. */}
           {mode === 'want' && badgeTypes.length > 0 && (
             <div>
-              <div className="label mb-2 text-neon">Badge type — anyone holding this badge can fill</div>
+              <div className="label mb-2 text-neon">Badge type, anyone holding this badge can fill</div>
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
                 {badgeTypes
                   .filter((b) => `${b.emblem} badge`.toLowerCase().includes(filter.toLowerCase()))
@@ -536,6 +593,7 @@ function AssetPickerModal({
                       representative={b.representative}
                       available={b.available}
                       qty={selGroups[b.emblem] ?? 0}
+                      atCap={atCap}
                       onChange={(q) => setGroupQty(b.emblem, q)}
                     />
                   ))}
@@ -554,7 +612,8 @@ function AssetPickerModal({
                     selected={!!sel[a.id]}
                     onToggle={toggle}
                     // Can't offer a listed (frozen) NFT in a swap — it's escrowed elsewhere.
-                    disabled={mode === 'give' && !!a.frozen}
+                    // Also block adding once the per-side NFT cap is reached.
+                    disabled={(mode === 'give' && !!a.frozen) || (atCap && !sel[a.id])}
                     lockedLabel={mode === 'give' && a.frozen ? 'LISTED' : undefined}
                   />
                 ))}
@@ -564,7 +623,9 @@ function AssetPickerModal({
         </div>
       )}
       <div className="mt-5 flex items-center justify-between">
-        <span className="text-sm text-slate-400">{totalSelected} selected</span>
+        <span className={clsx('text-sm', atCap ? 'text-flare font-semibold' : 'text-slate-400')}>
+          {totalSelected} / {maxAssets} NFTs
+        </span>
         <div className="flex gap-2">
           <button onClick={() => { setSel({}); setSelGroups({}); }} className="btn-ghost !py-2">
             <Trash2 size={14} /> Clear
@@ -583,22 +644,27 @@ function BadgeTypeCard({
   representative,
   available,
   qty,
+  atCap,
   onChange,
 }: {
   emblem: string;
   representative: NeukoAsset;
   available: number;
   qty: number;
+  /** The side has hit its NFT cap — no more can be added. */
+  atCap?: boolean;
   onChange: (qty: number) => void;
 }) {
   const max = Math.min(available, 8);
+  const canAdd = qty < max && !atCap;
   return (
     <div className={clsx('relative panel overflow-hidden text-left transition-all', qty > 0 ? 'ring-2 ring-neon shadow-glow' : 'hover:-translate-y-0.5')}>
       <button
         type="button"
-        onClick={() => onChange(Math.min(max, qty + 1))}
+        onClick={() => canAdd && onChange(qty + 1)}
+        disabled={!canAdd}
         title={`Request any ${emblem} Badge`}
-        className="block w-full relative aspect-square overflow-hidden"
+        className="block w-full relative aspect-square overflow-hidden disabled:cursor-not-allowed"
       >
         <AssetImage asset={representative} rounded="rounded-none" />
         {qty > 0 && (
@@ -614,7 +680,7 @@ function BadgeTypeCard({
           <div className="flex items-center gap-1">
             <button type="button" disabled={qty <= 0} onClick={() => onChange(Math.max(0, qty - 1))} className="grid h-6 w-6 place-items-center rounded-md border border-[color:var(--border)] text-slate-300 hover:bg-[var(--hover)] disabled:opacity-30 disabled:cursor-not-allowed">−</button>
             <span className="w-4 text-center text-xs tabular-nums">{qty}</span>
-            <button type="button" disabled={qty >= max} onClick={() => onChange(Math.min(max, qty + 1))} className="grid h-6 w-6 place-items-center rounded-md border border-[color:var(--border)] text-slate-300 hover:bg-[var(--hover)] disabled:opacity-30 disabled:cursor-not-allowed">+</button>
+            <button type="button" disabled={!canAdd} onClick={() => canAdd && onChange(qty + 1)} className="grid h-6 w-6 place-items-center rounded-md border border-[color:var(--border)] text-slate-300 hover:bg-[var(--hover)] disabled:opacity-30 disabled:cursor-not-allowed">+</button>
           </div>
         </div>
       </div>
