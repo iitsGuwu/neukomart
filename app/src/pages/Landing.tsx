@@ -5,7 +5,7 @@ import { ArrowRight, Repeat2, ShieldCheck, Lock, Sparkles } from 'lucide-react';
 import { AssetImage, EcoBadge, PriceTag } from '../components/ui';
 import { COLLECTIONS, type CollectionKey } from '../lib/constants';
 import { useMarketState } from '../lib/store';
-import { useEcosystemAssets } from '../hooks/useWalletData';
+import { useEcosystemAssets, useSwaps } from '../hooks/useWalletData';
 import { compact } from '../lib/format';
 import { traitValue } from '../lib/traits';
 import type { Listing, NeukoAsset } from '../lib/types';
@@ -25,6 +25,9 @@ function pickRandom(arr: NeukoAsset[], n: number): NeukoAsset[] {
 export function Landing() {
   const market = useMarketState();
   const { assets } = useEcosystemAssets();
+  // Read swaps straight from the chain (same source as Swap Studio) so the count
+  // is accurate — the store's `swaps` is never seeded and would always show 0.
+  const { data: swaps = [] } = useSwaps();
   const featured = market.listings.slice(0, 5);
 
   // Showcase: snake badge, moth badge, rabbit badge + 3 random Harmies (fresh each load).
@@ -126,8 +129,8 @@ export function Landing() {
         {[
           { k: 'Collections', v: '2' },
           { k: 'Total supply', v: compact(COLLECTIONS.badges.supply + COLLECTIONS.harmies.supply) },
-          { k: 'Live listings', v: String(market.listings.length) },
-          { k: 'Open swaps', v: String(market.swaps.filter((s) => s.status === 'open').length) },
+          { k: 'All live listings', v: String(market.listings.length) },
+          { k: 'Open swaps', v: String(swaps.filter((s) => s.status === 'open').length) },
         ].map((s) => (
           <div key={s.k} className="panel px-5 py-4">
             <div className="font-display text-3xl font-bold">{s.v}</div>

@@ -94,6 +94,18 @@ export function badgePubkeysByEmblem(ecosystem: NeukoAsset[]): Map<string, strin
   return m;
 }
 
+/** emblem → a representative badge asset of that emblem (the first found), so a
+ *  "any {emblem}" group can be shown with the real badge artwork. */
+export function badgeRepByEmblem(ecosystem: NeukoAsset[]): Map<string, NeukoAsset> {
+  const rep = new Map<string, NeukoAsset>();
+  for (const a of ecosystem) {
+    if (a.collection !== 'badges') continue;
+    const e = emblemOf(a);
+    if (e && !rep.has(e)) rep.set(e, a);
+  }
+  return rep;
+}
+
 /** rootHex → emblem, so a decoded swap root maps back to a readable type. */
 export function emblemRootIndex(ecosystem: NeukoAsset[]): Map<string, string> {
   const byEmblem = badgePubkeysByEmblem(ecosystem);

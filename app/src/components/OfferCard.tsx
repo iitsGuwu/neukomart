@@ -2,9 +2,35 @@ import clsx from 'clsx';
 import { ArrowRight, Check, Clock, Repeat2, X } from 'lucide-react';
 import { AssetImage, CurrencyIcon } from './ui';
 import { shortAddress, timeAgo, formatAmount } from '../lib/format';
-import type { SwapOffer, SwapSide } from '../lib/types';
+import type { SwapOffer, SwapSide, NeukoAsset } from '../lib/types';
 
-function SideStack({ side, label }: { side: SwapSide; label: string }) {
+/** A "any holder of this emblem" slot, shown with the real badge artwork. */
+function GroupTile({ emblem, count, rep }: { emblem: string; count: number; rep?: NeukoAsset }) {
+  return (
+    <div
+      title={`Any ${emblem} Badge${count > 1 ? ` ×${count}` : ''}`}
+      className="relative h-12 w-12 overflow-hidden rounded-lg border border-neon/40"
+    >
+      {rep ? (
+        <AssetImage asset={rep} rounded="rounded-none" />
+      ) : (
+        <div className="h-full w-full grid place-items-center bg-neon/10 text-neon text-[8px] font-bold text-center px-0.5 leading-tight">
+          {emblem}
+        </div>
+      )}
+      {count > 1 && (
+        <span className="absolute top-0.5 right-0.5 grid h-4 min-w-[1rem] px-1 place-items-center rounded-full bg-neon text-[var(--on-accent)] text-[9px] font-bold tabular-nums leading-none">
+          ×{count}
+        </span>
+      )}
+      <span className="absolute inset-x-0 bottom-0 bg-neon/85 text-[var(--on-accent)] text-[8px] font-bold text-center leading-[1.45] tracking-wide">
+        ANY
+      </span>
+    </div>
+  );
+}
+
+function SideStack({ side, label, repByEmblem }: { side: SwapSide; label: string; repByEmblem?: Map<string, NeukoAsset> }) {
   const hasMoney = side.sol > 0 || side.gboy > 0;
   const groups = side.groups ?? [];
   return (
@@ -16,19 +42,13 @@ function SideStack({ side, label }: { side: SwapSide; label: string }) {
             <AssetImage asset={a} rounded="rounded-none" />
           </div>
         ))}
+        {groups.map((g) => (
+          <GroupTile key={g.emblem} emblem={g.emblem} count={g.count} rep={repByEmblem?.get(g.emblem)} />
+        ))}
         {side.assets.length === 0 && groups.length === 0 && !hasMoney && (
           <span className="text-xs text-slate-500">—</span>
         )}
       </div>
-      {groups.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {groups.map((g) => (
-            <span key={g.emblem} className="chip border border-neon/30 bg-neon/10 text-neon text-[11px]">
-              Any {g.emblem}{g.count > 1 ? ` ×${g.count}` : ''}
-            </span>
-          ))}
-        </div>
-      )}
       {hasMoney && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {side.sol > 0 && (
@@ -51,6 +71,7 @@ export function OfferCard({
   offer,
   mine,
   incoming,
+  repByEmblem,
   onAccept,
   onCancel,
   onCounter,
@@ -59,6 +80,8 @@ export function OfferCard({
   mine?: boolean;
   /** This swap is locked specifically to the viewer (an incoming offer). */
   incoming?: boolean;
+  /** emblem → representative badge asset, so "any {emblem}" slots show artwork. */
+  repByEmblem?: Map<string, NeukoAsset>;
   onAccept?: () => void;
   onCancel?: () => void;
   onCounter?: () => void;
@@ -91,11 +114,11 @@ export function OfferCard({
 
       <div className="flex items-stretch gap-3">
         {/* From maker's POV: gives -> wants. For a taker, label accordingly. */}
-        <SideStack side={offer.give} label={mine ? 'You give' : 'They give'} />
+        <SideStack side={offer.give} label={mine ? 'You give' : 'They give'} repByEmblem={repByEmblem} />
         <div className="grid place-items-center px-1">
           <ArrowRight size={18} className="text-slate-500" />
         </div>
-        <SideStack side={offer.want} label={mine ? 'You want' : 'You give'} />
+        <SideStack side={offer.want} label={mine ? 'You want' : 'You give'} repByEmblem={repByEmblem} />
       </div>
 
       <div className="mt-4 pt-4 border-t border-[color:var(--border)] flex items-center justify-between">

@@ -10,7 +10,7 @@ import { OfferCard } from '../components/OfferCard';
 import { useMyAssets, useEcosystemAssets, useSwaps, useAssetsOf } from '../hooks/useWalletData';
 import { shortAddress } from '../lib/format';
 import { useMarketActions } from '../hooks/useMarketActions';
-import { badgePubkeysByEmblem } from '../lib/merkle';
+import { badgePubkeysByEmblem, badgeRepByEmblem } from '../lib/merkle';
 import type { OnChainSwap } from '../lib/swaps';
 import type { BadgeGroup, NeukoAsset, SwapSide } from '../lib/types';
 
@@ -47,6 +47,10 @@ export function SwapStudio() {
   const { data: takerAssets } = useAssetsOf(takerAddr);
   const directed = !!takerAddr && !!takerAssets && takerAssets.length > 0;
   const wantPool = directed ? takerAssets! : ecosystem;
+
+  // emblem → representative badge artwork, so "any {emblem}" slots render the
+  // real badge image (in the builder and on every offer card).
+  const repByEmblem = useMemo(() => badgeRepByEmblem(ecosystem), [ecosystem]);
 
   const wantGroupCount = (want.groups ?? []).reduce((n, g) => n + g.count, 0);
   const valid =
@@ -132,6 +136,7 @@ export function SwapStudio() {
             title="You want"
             accent="harm"
             side={want}
+            repByEmblem={repByEmblem}
             onAddAssets={() => setPicker('want')}
             onRemoveAsset={(a) => setWant((s) => ({ ...s, assets: s.assets.filter((x) => x.id !== a.id) }))}
             onRemoveGroup={(emblem) => setWant((s) => ({ ...s, groups: (s.groups ?? []).filter((g) => g.emblem !== emblem) }))}
@@ -192,6 +197,7 @@ export function SwapStudio() {
                 <OfferCard
                   key={o.id}
                   offer={o}
+                  repByEmblem={repByEmblem}
                   onAccept={() => acceptSwap(o, outgoingOffers, ecosystem, mine)}
                   onCounter={() => startCounter(o)}
                 />
@@ -213,6 +219,7 @@ export function SwapStudio() {
                         key={o.id}
                         offer={o}
                         incoming
+                        repByEmblem={repByEmblem}
                         onAccept={() => acceptSwap(o, outgoingOffers, ecosystem, mine)}
                         onCounter={() => startCounter(o)}
                       />
@@ -229,6 +236,7 @@ export function SwapStudio() {
                         key={o.id}
                         offer={o}
                         mine
+                        repByEmblem={repByEmblem}
                         onCancel={o.status === 'open' ? () => cancelSwap(o) : undefined}
                       />
                     ))}
@@ -275,6 +283,7 @@ function SwapSidePanel({
   title,
   accent,
   side,
+  repByEmblem,
   onAddAssets,
   onRemoveAsset,
   onRemoveGroup,
@@ -284,6 +293,7 @@ function SwapSidePanel({
   title: string;
   accent: 'neon' | 'harm';
   side: SwapSide;
+  repByEmblem?: Map<string, NeukoAsset>;
   onAddAssets: () => void;
   onRemoveAsset: (a: NeukoAsset) => void;
   onRemoveGroup?: (emblem: string) => void;
@@ -301,22 +311,6 @@ function SwapSidePanel({
         </button>
       </div>
 
-      {/* "any holder of this badge type" requests */}
-      {groups.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {groups.map((g) => (
-            <span key={g.emblem} className="chip border border-neon/30 bg-neon/10 text-neon text-[11px] inline-flex items-center gap-1">
-              Any {g.emblem} Badge{g.count > 1 ? ` ×${g.count}` : ''}
-              {onRemoveGroup && (
-                <button onClick={() => onRemoveGroup(g.emblem)} className="hover:text-slate-50">
-                  <X size={11} />
-                </button>
-              )}
-            </span>
-          ))}
-        </div>
-      )}
-
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 min-h-[5.5rem]">
         {side.assets.map((a) => (
           <div key={a.id} className="relative group aspect-square overflow-hidden rounded-xl border border-[color:var(--border)]">
@@ -329,6 +323,41 @@ function SwapSidePanel({
             </button>
           </div>
         ))}
+        {/* "any holder of this badge type" slots — shown with the real artwork. */}
+        {groups.map((g) => {
+          const rep = repByEmblem?.get(g.emblem);
+          return (
+            <div
+              key={g.emblem}
+              title={`Any ${g.emblem} Badge${g.count > 1 ? ` ×${g.count}` : ''}`}
+              className="relative group aspect-square overflow-hidden rounded-xl border border-neon/40"
+            >
+              {rep ? (
+                <AssetImage asset={rep} rounded="rounded-none" />
+              ) : (
+                <div className="h-full w-full grid place-items-center bg-neon/10 text-neon text-[10px] font-bold text-center px-1">
+                  {g.emblem}
+                </div>
+              )}
+              {g.count > 1 && (
+                <span className="absolute top-1 left-1 grid h-5 min-w-[1.25rem] px-1 place-items-center rounded-full bg-neon text-[var(--on-accent)] text-[10px] font-bold tabular-nums">
+                  ×{g.count}
+                </span>
+              )}
+              <span className="absolute inset-x-0 bottom-0 bg-neon/85 text-[var(--on-accent)] text-[9px] font-bold text-center leading-snug tracking-wide truncate px-1">
+                ANY {g.emblem.toUpperCase()}
+              </span>
+              {onRemoveGroup && (
+                <button
+                  onClick={() => onRemoveGroup(g.emblem)}
+                  className="absolute top-1 right-1 grid h-5 w-5 place-items-center rounded-full bg-ink-950/80 text-slate-300 opacity-0 group-hover:opacity-100 transition"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          );
+        })}
         {empty && (
           <button
             onClick={onAddAssets}
