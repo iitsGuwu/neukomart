@@ -20,8 +20,10 @@ export function BuyDialog({ listing, onClose }: { listing: Listing | null; onClo
   const isExternal = origin === 'magiceden' || origin === 'tensor';
   const externalUrl = isExternal ? originUrl(origin, listing.asset.id) : null;
 
-  // Fee breakdown — buyer pays full price; fee comes from seller's proceeds.
-  const { feeAmount, sellerReceives } = feeLabel(origin, listing.price);
+  // Cost breakdown — buyer pays full price; the marketplace fee and the
+  // (universal) creator royalty come out of the seller's proceeds.
+  const { feeAmount, royaltyAmount, sellerReceives } = feeLabel(origin, listing.price);
+  const cur = listing.currency.toUpperCase();
   const balance = listing.currency === 'sol' ? bal?.sol : bal?.gboy;
   const enough = balance != null ? balance >= listing.price : true;
 
@@ -45,24 +47,32 @@ export function BuyDialog({ listing, onClose }: { listing: Listing | null; onClo
       <div className="mt-5 space-y-2.5 rounded-2xl bg-ink-900/60 border border-[color:var(--border)] p-4">
         <Row label="You pay" value={<PriceTag amount={listing.price} currency={listing.currency} size="sm" />} />
         <Row
-          label={isExternal ? "Marketplace fee" : "Creator royalty"}
+          label="Marketplace fee"
           value={
             meta.fee === 0 ? (
               <span className="text-green-400 font-semibold flex items-center gap-1">
                 <Zap size={12} /> 0% · feeless
               </span>
             ) : (
-              <span className="font-semibold" style={{ color: !isExternal ? '#22c55e' : meta.color }}>
-                {meta.feeLabel} · {formatAmount(feeAmount, listing.currency)} {listing.currency.toUpperCase()}
+              <span className="font-semibold" style={{ color: meta.color }}>
+                {meta.feeLabel} · {formatAmount(feeAmount, listing.currency)} {cur}
               </span>
             )
+          }
+        />
+        <Row
+          label={<>Creator royalty <span className="text-slate-500 font-normal">· all marketplaces</span></>}
+          value={
+            <span className="font-semibold text-slate-200">
+              5% · {formatAmount(royaltyAmount, listing.currency)} {cur}
+            </span>
           }
         />
         <Row
           label="Seller receives"
           value={
             <span className="font-semibold text-slate-200">
-              {formatAmount(sellerReceives, listing.currency)} {listing.currency.toUpperCase()}
+              {formatAmount(sellerReceives, listing.currency)} {cur}
             </span>
           }
         />
@@ -200,7 +210,7 @@ export function ListDialog({ asset, onClose }: { asset: NeukoAsset | null; onClo
       <div className="mt-4 rounded-xl bg-gboy/5 border border-gboy/20 px-3.5 py-2.5 text-xs text-gboy flex items-start gap-2">
         <ShieldCheck size={14} className="mt-0.5 shrink-0" />
         <span>
-          <b>Escrowless</b>: the NFT stays in your wallet (frozen) until it sells. 0% marketplace fees (5% creator royalties apply).
+          <b>Escrowless</b>: the NFT stays in your wallet (frozen) until it sells. 0% marketplace fees. The 5% creator royalty is set by the collection and applies on every marketplace, not just here.
         </span>
       </div>
 
@@ -320,7 +330,7 @@ export function MakeOfferDialog({
   );
 }
 
-function Row({ label, value, strong }: { label: string; value: React.ReactNode; strong?: boolean }) {
+function Row({ label, value, strong }: { label: React.ReactNode; value: React.ReactNode; strong?: boolean }) {
   return (
     <div className="flex items-center justify-between text-sm">
       <span className={strong ? 'font-semibold' : 'text-slate-400'}>{label}</span>

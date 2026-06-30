@@ -162,7 +162,7 @@ export function AssetDetail() {
                       <span className="text-xs text-slate-500">
                         Seller receives {formatAmount(sellerReceives, activeListing.currency)}{' '}
                         {activeListing.currency.toUpperCase()}
-                        {' '}({formatAmount(feeAmount, activeListing.currency)} fee)
+                        {' '}(after {formatAmount(feeAmount, activeListing.currency)} fee + 5% royalty)
                       </span>
                     );
                   })()}
@@ -206,8 +206,8 @@ export function AssetDetail() {
               </>
             )}
             <div className="mt-4 pt-4 border-t border-[color:var(--border)] flex items-center gap-2 text-xs text-gboy">
-              <EcoBadge tone="gboy">0% fee</EcoBadge>
-              <span className="text-slate-500">Seller receives 100% of the price.</span>
+              <EcoBadge tone="gboy">0% fees</EcoBadge>
+              <span className="text-slate-500">No Neukomart fee. A 5% creator royalty applies on every marketplace.</span>
             </div>
           </div>
 

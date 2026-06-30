@@ -31,26 +31,33 @@ export class ExternalBuyFailed extends Error {
 
 // ---- Fee constants ----------------------------------------------------------
 
-/** Platform fees as a fraction of sale price. Buyer pays listed price; fee
- *  comes out of the seller's proceeds. */
+/** Marketplace fee as a fraction of sale price. This is what the MARKETPLACE
+ *  takes — Neukomart takes nothing. Buyer pays listed price; the fee comes out
+ *  of the seller's proceeds. */
 export const PLATFORM_FEE: Record<'magiceden' | 'tensor' | 'neukomart', number> = {
-  neukomart: 0.05,
+  neukomart: 0,       // feeless
   magiceden: 0.02,    // 2%
   tensor:    0.015,   // 1.5% (TSWAP standard; TCOMP may differ)
 };
 
+/** Creator royalty as a fraction of sale price. This is set by the collection
+ *  (the on-chain Royalty plugin) and is paid to the creators on EVERY
+ *  marketplace — Magic Eden, Tensor and Neukomart alike, not a Neukomart fee. */
+export const CREATOR_ROYALTY = 0.05; // 5%
+
 /**
- * Human-readable fee label for a platform.
- * e.g.  feeLabel('magiceden', 1.5) → "0.030 SOL (2% ME fee)"
+ * Cost breakdown for a sale: the marketplace fee, the (universal) creator
+ * royalty, and what the seller is left with after both.
  */
 export function feeLabel(
   platform: 'magiceden' | 'tensor' | 'neukomart',
   price: number,
-): { feeAmount: number; feePct: number; sellerReceives: number } {
+): { feeAmount: number; feePct: number; royaltyAmount: number; royaltyPct: number; sellerReceives: number } {
   const feePct = PLATFORM_FEE[platform];
   const feeAmount = price * feePct;
-  const sellerReceives = price - feeAmount;
-  return { feeAmount, feePct, sellerReceives };
+  const royaltyAmount = price * CREATOR_ROYALTY;
+  const sellerReceives = price - feeAmount - royaltyAmount;
+  return { feeAmount, feePct, royaltyAmount, royaltyPct: CREATOR_ROYALTY, sellerReceives };
 }
 
 // ---- Magic Eden -------------------------------------------------------------

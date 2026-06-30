@@ -142,7 +142,7 @@ export const ORIGIN_META: Record<
 > = {
   magiceden: { label: 'Magic Eden', short: 'Magic Eden', color: '#e42575', fee: 0.02,  feeLabel: '2% fee'     },
   tensor:    { label: 'Tensor',     short: 'Tensor',     color: '#5c7cfa', fee: 0.015, feeLabel: '1.5% fee'   },
-  neukomart: { label: 'Native Neukomart',  short: 'Neukomart',      color: '#ff2222', fee: 0.05,  feeLabel: '5% royalty' },
+  neukomart: { label: 'Native Neukomart',  short: 'Neukomart',      color: '#ff2222', fee: 0,     feeLabel: '0% fees' },
 };
 
 /** Link to the item's page on its source marketplace (null for neukomart). */
@@ -169,7 +169,7 @@ export function OriginBadge({ origin, compact = false, className }: { origin: Ma
 
 /**
  * Origin + fee pill for use on NFT cards.
- * NEUKO listings show a green fee badge; ME/Tensor show their fee.
+ * NEUKO listings show a green "0% fees" badge; ME/Tensor show their fee.
  */
 export function FeePill({ origin, className }: { origin: MarketOrigin; className?: string }) {
   const m = ORIGIN_META[origin] ?? ORIGIN_META.neukomart;
@@ -185,14 +185,14 @@ export function FeePill({ origin, className }: { origin: MarketOrigin; className
         borderColor:     isNeuko ? '#22c55e55' : `${m.color}55`,
         backgroundColor: isNeuko ? '#22c55e18' : `${m.color}18`,
       }}
-      title={`${m.label} · ${m.feeLabel}`}
+      title={isNeuko ? 'Neukomart · 0% marketplace fees' : `${m.label} · ${m.feeLabel}`}
     >
       {isNeuko ? (
         <Zap size={8} className="shrink-0" />
       ) : (
         <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: m.color }} />
       )}
-      {isNeuko ? '5% ROYALTY' : `${m.feeLabel.toUpperCase()} · ${m.short.toUpperCase()}`}
+      {isNeuko ? '0% FEES' : `${m.feeLabel.toUpperCase()} · ${m.short.toUpperCase()}`}
     </span>
   );
 }
