@@ -55,7 +55,7 @@ export function Footer() {
             you to <FootLink href="https://x.com/TheDouble6">Chasin</FootLink>,{' '}
             <FootLink href="https://x.com/LiquorGrainNFT">LiquorGrain</FootLink>,{' '}
             <FootLink href="https://x.com/ReeceSolana">Reece</FootLink> and{' '}
-            <FootLink href="https://x.com/iitsGuru">Guru</FootLink> for making this marketplace a
+            <FootLink href="https://x.com/iitsGuru">iitsGuru</FootLink> for making this marketplace a
             reality.
           </p>
           <p>
